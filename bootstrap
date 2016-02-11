@@ -1,0 +1,6 @@
+#!/bin/sh -e
+# This script is used to generate
+# configuration files. It is relatively
+# hardcoded
+#
+exec autoreconf -f -i

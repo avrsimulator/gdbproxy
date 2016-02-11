@@ -1,0 +1,61 @@
+Changes in gdbproxy 0.7.2:
+
+* Add support for qThreadExtraInfo, qfThreadInfo, and qsThreadInfo commands.
+
+* Add support for qSupported commands.
+
+Changes in gdbproxy 0.7.1:
+
+* Reworked a lot of the code. Added a skeleton target program, that should
+  be easy to adapt for real targets. Added support for the TI MSP430,
+  although that module is not open source. Dropped support for the ppcdbm
+  module, as I have never seen one, and cannot support it (anyone that wants
+  to put it back is welcome to). Added support for some bits of the GDB
+  remote protocol not previously supported - they may not actually be used
+  by any current version of GDB, but thoroughness never hurt anyone, did it?i
+  (actually, yes it did!) Changed the name to gdbproxy, as several
+  other programs have the name rproxy, and rproxy isn't very descriptive
+  anyway. VC++ support has been dropped, and the software builds properly
+  using the ./configure make approach under Cygwin and MinGW32.
+
+  The software has been tested on RedHat Linux 7.2 and 7.3, and using
+  Cygwin and MinGW32 on WinME and WinXP.
+
+  As with all good version numbers, a tiny increment represents a large
+  change! :-)
+
+Change in rproxy 0.7:
+
+* Changed licensing to BSD-style
+
+Change in rproxy  0.6:
+
+* Added support for all SPR accessible on MPC860.
+
+Change in rproxy  0.5:
+
+* Protocol-1.0 compliance, WinNT version supports ppcbdm target.
+
+Change in rproxy  0.4:
+
+* Port to WinNT 
+
+Change in rproxy  0.3:
+
+* Formal spec support
+
+* Native FreeBSD3.2 support
+
+Changed in rproxy 0.2:
+
+* Daemon mode
+
+* Target `native'
+
+* Bug fixes
+
+Changed in rproxy 0.1:
+
+* Made GNITS compilant
+
+* Created 

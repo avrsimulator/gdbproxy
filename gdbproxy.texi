@@ -1,0 +1,304 @@
+\input texinfo       @c                    -*- Texinfo -*-
+@setfilename gdbproxy.info
+@include version.texi
+
+@ifinfo
+@format
+START-INFO-DIR-ENTRY
+* Remote Proxy: (gdbproxy).       Proxy server using the remote GDB protocol.
+END-INFO-DIR-ENTRY
+@end format
+@end ifinfo
+
+@ifinfo
+Copyright @copyright{} 1999 Quality Quorum, Inc.
+Copyright @copyright{} 2002 Chris Liechti and Steve Underwood
+Copyright @copyright{} 2008-2010 Analog Devices, Inc.
+
+Permission is granted to make and distribute verbatim copies of
+this manual provided the copyright notice and this permission notice
+are preserved on all copies.
+
+@ignore
+Permission is granted to process this file through TeX and print the
+results, provided the printed document carries a copying permission
+notice identical to this one except for the removal of this paragraph
+(this paragraph not being relevant to the printed manual).
+
+@end ignore
+
+Permission is granted to copy and distribute modified versions of this
+manual under the conditions for verbatim copying, provided also that
+the entire resulting derived work is distributed under the terms of a
+permission notice identical to this one.
+
+Permission is granted to copy and distribute translations of this manual
+into another language, under the above conditions for modified versions.
+@end ifinfo
+
+@synindex ky cp
+@c
+@c This file documents the Remote Proxy Server for GDB
+@c
+@c Copyright (C) 1999-2001 Quality Quorum, Inc.
+@c Copyright (C) 2002 Chris Liechti and Steve Underwood
+@c Copyright (C) 2008-2010 Analog Devices, Inc.
+@c 
+@c Redistribution and use in source and binary forms, with or without
+@c modification, are permitted provided that the following conditions are met:
+@c
+@c   1. Redistributions of source code must retain the above copyright notice,
+@c      this list of conditions and the following disclaimer.
+@c   2. Redistributions in binary form must reproduce the above copyright
+@c      notice, this list of conditions and the following disclaimer in the
+@c      documentation and/or other materials provided with the distribution.
+@c   3. The name of the author may not be used to endorse or promote products
+@c      derived from this software without specific prior written permission.
+@c
+@c THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+@c WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+@c MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+@c EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+@c SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+@c PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+@c OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+@c WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+@c OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+@c ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+@c
+@c
+
+@setchapternewpage odd
+@settitle The Remote Proxy Server for GDB
+@titlepage
+@finalout
+@title The Remote Proxy Server for GDB
+@subtitle Version @value{VERSION}
+@sp 1
+@subtitle Jan 2008
+@author Quality Quorum, Inc.
+@author Steve Underwood
+@author Analog Devices, Inc.
+@page
+
+@tex
+{\parskip=0pt \hfill Qaulity Quorum, Inc.\par \hfill
+\TeX{}info \texinfoversion\par }
+@end tex
+
+@vskip 0pt plus 1filll
+Copyright @copyright{} 1999-2001 Quality Quorum, Inc.
+Copyright @copyright{} 2002 Chris Liechti and Steve Underwood
+Copyright @copyright{} 2008-2010 Analog Devices, Inc.
+
+Permission is granted to make and distribute verbatim copies of
+this manual provided the copyright notice and this permission notice
+are preserved on all copies.
+
+Permission is granted to copy and distribute modified versions of this
+manual under the conditions for verbatim copying, provided also that
+the entire resulting derived work is distributed under the terms of a
+permission notice identical to this one.
+
+Permission is granted to copy and distribute translations of this manual
+into another language, under the above conditions for modified versions.
+@end titlepage
+
+@node Top
+@top Top
+
+@cindex version
+This brief manual contains preliminary documentation for the GDB Remote Proxy 
+Server or gdbproxy (collectively version @value{VERSION}): 
+
+@iftex
+@table @code
+@item Introduction
+General introduction to gdbproxy functionality 
+
+@item Invoking gdbproxy
+Command options supported by gdbproxy 
+
+@item Targets `remote' and `extended-remote'
+Description of `remote' and `extended-remote' targets
+
+@item Target `skeleton'
+Description of the target `skeleton'
+@end table
+@end iftex
+
+@menu
+* Introduction::                           General introduction into gdbproxy 
+                                           functionality.
+* Invoking gdbproxy::                      Command options supported by
+                                           gdbproxy.
+* Monitor commands::                       Monitors commands for gdbproxy.
+* Targets `remote' and `extended-remote':: Description of `remote' and 
+                                           `extended-remote' targets.
+* Target `skeleton'::			   Description of the `skeleton' target.
+* Index::                                  Index.
+@end menu
+
+@node    Introduction, Invoking gdbproxy, Top, Top
+@chapter Introduction
+
+@cindex gdbproxy
+@cindex target
+@cindex labslave
+
+The  @code{gdbproxy} program is a gdbvsever-like application for embedded
+environment. The main purpose of @code{gdbproxy} is it allow truly remote 
+debugging working as an integral part of the set of utilities called 
+Labslave. It is supposed to be run on the computer located near a system
+being debugged. It communicates with debugger over net using standard GDP
+remote protocol. It incorporates a number of targets which allow it to hook
+up a system being debugged.
+
+There are number of established ways to do remote debugging, let us compare
+the @code{gdbproxy} with a terminal server and with telnetting into the lab
+machine.
+
+Comparing to a terminal server @code{gdbproxy} has the following advantages: 
+(1)terminal server supports only one target, (2)lab machine could be 
+used for a wide variety of tasks, for example it can provide bootp, nfs
+and syslog services for a device under debugging, (3) other components of 
+a lab slave could be run on the same lab machine.
+
+Comparing to a telnetting into lab machine the @code{gdbproxy} has the following 
+advantages: (1) it does not require lab machine to mount source directories
+(it reduces administrative needs of a lab machine and its bandwidth
+rquirements), (2) its bandwidth requitrements are low, debugger is more 
+responsive and its traffic could be easily encrypted, so remote device could
+be truly debugged across the open (and slow) Internet.
+
+Also the @code{gdbproxy} has the unique advantage of merging cross platform 
+problems. For example if one has @sc{gnu} developement environment 
+running on SUN and particular ICE (e.g. wiggler) is accessible only 
+from WinNT. Then one could use WinNT port of the Labslave on the 
+lab machine and effectively use remote debugger on SUNs.
+
+The @code{gdbproxy} does not require to be configured and it is 
+able to support wide variety of processors and debugging instruments
+in the same image.
+
+@node Invoking gdbproxy, Monitor commands, Introduction, Top
+@chapter Invoking gdbproxy
+
+@smallexample
+gdbproxy [--copying] [--daemon] [--debug] [--help] [--port=@var{port}] [--version] 
+[--warranty] [@var{target} [@var{target-options}] [@var{target-arguments}]] 
+@end smallexample
+
+The @code{gdbproxy} listens of remote GDB protocol commands on the 
+socket port, translate requests into approriate commands for the target,
+translated target responses to the GBP protocol commands and send them
+back to the debugger.
+
+@table @code
+@item --copying
+Print information about distributing the @code{gdbproxy} and exit.
+
+@item --daemon
+Start @code{gdbproxy} as a daemon.
+
+@item --debug
+Run the @code{gdbproxy} in debug mode.
+
+@item --help
+Print help message and list of supported targets and exit.
+
+@item --port=@var{port}
+The @code{gdbproxy} will listen on specified port, otherwise it will use 
+available port. In all cases the @code{gdbproxy} will print port being 
+used on standard output
+
+@item --version
+Print current version and exit.
+
+@item --warranty
+Print NO WARRANTY details and exit.
+
+@item @var{target}
+Target name. It is required unless either --help, --version, --warranty,
+--copying are specified. @samp{gdbproxy --help} @var{target-x} prints help for
+@var{target-x}. 
+
+@item @var{target-options}
+Options for target.
+ 
+@item @var{target-arguments}
+Non-option arguments for target.
+
+@end table
+
+@node    Monitor commands, Targets `remote' and `extended-remote', Invoking gdbproxy, Top
+@chapter Monitor commands
+
+During a @code{GDB} session using @code{gdbproxy}, several monitor commands
+can be used to send special requests to @code{gdbproxy}.
+Here are the available target independent commands.
+
+@table @code
+@item monitor help
+Print the available monitor commands, both target independent and
+target dependent ones.
+
+@item monitor set debug @var{level}
+Set the debug level of @code{gdbproxy}, which controls how much debug
+information printed out by @code{gdbproxy}. @var{level} could be
+0, 1, 2, and 3.
+
+@end table
+
+@node    Targets `remote' and `extended-remote', Target `skeleton', Monitor commands, Top
+@chapter Targets `remote' and `extended-remote'
+
+@smallexample
+gdbproxy [@var{proxy-options}] remote [--debug] [--use-break] 
+ [--baud=@var{baud}] [--timeout=@var{timeout}] @var{device}
+or
+gdbproxy [@var{proxy-options}] extended-remote [--debug] [--use-break] 
+ [--baud=@var{baud}] [--timeout=@var{timeout}] @var{device}
+@end smallexample
+
+The target `remote' is using remote GDB protocol over serial line to 
+connect with device being debugged. Target `extended-remote' is using 
+extended version of the GDB protocol. Please, note if your stub does not 
+support remote operations, `extended-remote' is not able to detect this
+due to protocol deficiency. So, `extended-remote' should be used 
+only with stubs which support remote operations.
+
+@table @code
+@item --debug
+Run remote target in debug mode.
+
+@item --use-break
+Send BREAK to stop device being debugged, default is to send Ctrl-C.
+
+@item --baud=@var{baud}
+Set baud rate, default is 38400.
+
+@item --timeout=@var{timeout}
+Set timeout, default is 2 seconds, minimal value is 1 second, maximum
+value is 3600 seconds.
+
+@item @var{device}
+Device to be used, currently only local serial connections are supported.
+
+@end table
+
+@node    Target `skeleton', Index, Targets `remote' and `extended-remote', Top
+@chapter Target `skeleton'
+
+@smallexample
+gdbproxy [@var{proxy-options}] skeleton [--debug] @var{driver}
+@end smallexample
+
+@node Index
+@unnumbered Index
+
+@printindex cp
+
+@contents
+@bye
+

@@ -1,0 +1,7 @@
+ o Add support for more processors using wigglers.dll 
+ o Split more specific queries from raw query
+ o Support for 'X' packet both in proxy and 'remote' target
+ o Option allowing 'remote' to interpret any response to 
+   '!' as a OK
+ 
+

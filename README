@@ -1,0 +1,95 @@
+gdbproxy - a remote proxy program for the GNU debugger, GDB
+=========================================================== 
+
+gdbproxy is an open source remote proxy program for the GNU debugger, GDB.
+Its licence is similar to the BSD licence, so it can be used to build
+closed source interfaces between GDB and proprietary target debug
+environments.
+
+gdbproxy is based on the Open Source program rproxy, which can be found at:
+
+http://world.std.com/~qqi/labslave/rproxy.html
+
+What is gdbproxy actually for?
+==============================
+
+Here was our problem:
+
+One of the nice features of the Texas Instruments MSP430 microcontrollers
+are their on-chip emulation facilities. These are usually accessed through
+a TI JTAG Flash Emulation Tool (FET) attached to a PC's parallel port. To
+make the GNU debugger (GDB) work with this, an interface between GDB and
+the FET was needed.
+
+TI made their MSP430 debug interface code available to the developers of
+the MSP430 port of the GNU toolchain. However, for commercial reasons, TI
+would not allow the full version of their interface library to be released
+as open source code. It would reveal things about the working of the MSP430,
+which they consider commercially confidential. The licencing of the GNU tools
+does not permit linking against a closed source library. This is where
+gdbproxy fits in.....
+
+GDB supports remote debugging through serial or TCP/IP connections.
+gdbserver is a remote debug proxy program for these remote debug
+environments, supplied as part of the GDB package. This is licenced
+under the GPL, and cannot be mingled with closed source code. gdbproxy
+provides similar functionality, but is licenced under a BSD style
+licence. It does, therefore, permit linking with closed source
+code. gdbproxy has, therefore, been adapted to provide a TCP/IP to
+MSP430 FET interface for GDB. I think it is also better structured for
+isolating the functionality associated with a specific target in one simple
+module. It is, therefore, easier to adapt to new target environments.
+
+The source for the generic version of gdbproxy continues to be open source,
+released under the same licence as the original gdbproxy program. Only the
+MSP430 specific code remains closed source. The skeleton target interface,
+supplied as open source, is the same code on which the MSP430 support is
+built. It should be easy to adapt this to provide support for many targets.
+
+What can gdbproxy do for me?
+============================
+
+If you are trying to provide GDB support for a target which requires the
+use of proprietary code, gdbproxy may be just right for you. I also think
+gdbproxy is a better basis for building completely open GDB debug interfaces,
+too. In gdbproxy, all target specific code is kept in one tidy module. A
+skeleton for that module is provided, so it should be quite a quick task to
+get support for a new environment up and running.  Look through the code for
+"TODO" markers that highlight what needs changing for new target support.
+
+If you are using the mspgcc port of the GNU tools for the Texas Instruments
+MSP430 you definitely want the MSP430 version of gdbproxy.
+
+How can I try it out?
+=====================
+
+gdbproxy builds OK on Linux and with MinGW32 or Cygwin on Windows. It uses
+the GNU autoconf and automake tools, so to build it use:
+
+./configure
+make
+make install
+
+By default, this will build the program to support a GDB serial protocol
+interface to a generic target, and a skeleton module that you can adapt to
+a target specific debug environment.
+
+To try it use:
+
+./gdbproxy --help
+
+or
+
+./gdbproxy --help skeleton
+
+to get help specific to the "skeleton" target.
+
+To run gdbproxy for the "skeleton" target, listening on TCP/IP port 1234 for
+connections from GDB, use:
+
+./gdbproxy --port=1234 skeleton
+
+
+Good Luck
+Steve Underwood <steveu@coppice.org>
+

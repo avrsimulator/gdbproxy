@@ -1,0 +1,45 @@
+.\" Copyright (c) 1999-2001 Quality Quorum, Inc.
+.\" Process this file with groff -man -Tascii gdbproxy.1
+.TH gdbproxy 1 "October 2002" "Quality Quorum" "Development Tools"
+.SH NAME
+gdbproxy \- remote proxy server using GDB remote debug protocol
+.SH SYNOPSIS
+.B gdbproxy
+.B  [--copying] [--daemon] [--debug] [--help] [--port=PORT]
+.B  [--version] [--warranty] [target [target-options] [target-arguments]]
+.SH DESCRIPTION
+.B gdbproxy
+is an application level bridge connecting a locally attached target to a
+remote debugger using the standard GDB protocol. It supports several targets.
+The target to be used, its parameters and arguments are specified on the
+command line.
+.SH OPTIONS
+.IP --copying
+Show copying information.
+.IP --daemon
+Start gdbproxy as a daemon. In this case all logging will be redirected to syslog.
+Normally gdbproxy uses standard output to print messages and standard error to 
+print debugging information.
+.IP --debug
+Enable debug output.
+.IP --help 
+Without arguments it prints help and a list of supported targets, 
+`gdbproxy --help target' will print help for the specified target. 
+.IP --port=PORT
+If this option is specified then
+.B gdbproxy 
+will use 
+.B PORT 
+to listen for incoming connections on the debugger side. Otherwise it will use 
+the first available port over 2000. It always logs the port being used as it
+starts up.
+.IP --version
+Print version informantion.
+.IP --warranty 
+Print warranty information.
+.SH AUTHOR
+Quality Quorum, Inc. <qqi@world.std.com>
+MSP430 adaptation Chris Liechti <cliechti@gmx.net> and Steve Underwood <steveu@coppice.org>
+.SH "SEE ALSO"
+.BR gdb(1)
+

@@ -1,0 +1,49 @@
+2002-11-08  Steve Underwood <steveu@coppice.org>
+
+	* Reworked a lot of the code so it handles packets, acks, naks,
+          control-C etc. in a coherent way. This reduces the number of ways
+          the remote GDB protocol can screw-up, but cannot really fix it.
+	  Made a skeleton target module from which people can work in
+	  building real ones. Made a real target module for the MSP430, 
+          but that is not open source. Added support for some missing GDB
+          remote protocol features, which current GDBs may not even use
+          (e.g. read a single register), and fixed some others that did
+          not work (e.g. CRC32 a memory block). Renamed the program from
+          rproxy to gdbproxy - there are several things called rproxy,
+          such as a program in the rsync package, and rproxy is not very
+          descriptive.
+
+2001-08-02  QQI <qqi@world.std.com>
+
+	* Changed license to BSD-style, removed native targets
+
+2000-02-03  QQI <qqi@world.std.com>
+
+	* Fixed bugs in ppcbdm, added support for all accessible SPR 
+          registers, increased download speed
+
+2000-01-02  QQI <qqi@world.std.com>
+
+	* Fixed bugs in ppcbdm, added support for all accessible SPR 
+          registers, increased download speed
+
+2000-01-02  QQI <qqi@world.std.com>
+
+	* Added ppcbdm target to WinNT version. Add compliance to protocol-1.0.
+
+1999-12-26  QQI <qqi@world.std.com>
+
+	* Ported to WinNT
+
+1999-12-19  QQI <qqi@wordl.std.com>
+    
+	* It is compliant with protocol specs v0.4	
+
+1999-12-11  QQI <qqi@world.std.com>
+
+	* Added a lot of stuff and bumped up version to 0.2
+
+1999-12-01  QQI <qqi@world.std.com>
+
+	* Freshly created ChangeLog. 
+
