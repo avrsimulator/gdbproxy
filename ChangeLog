@@ -1,3 +1,8 @@
+2016-02-19  Jan Egil Ruud <janegil.ruud@atmel.com>
+
+	* Added Atmel simulator model API, and targets for AVR, AVR32 and
+		SAM simulator models
+
 2002-11-08  Steve Underwood <steveu@coppice.org>
 
 	* Reworked a lot of the code so it handles packets, acks, naks,

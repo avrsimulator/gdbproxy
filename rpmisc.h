@@ -31,20 +31,32 @@
    $Id: rpmisc.h,v 1.2 2010/02/10 11:33:54 vapier Exp $ */
 
 
-void dbg_sock_init(void);
-void dbg_sock_cleanup(void);
-int  dbg_sock_open(unsigned int *port);
-void dbg_sock_close(void);
-int  dbg_sock_accept(void);
-int  dbg_sock_readchar(int ms);
-int  dbg_listen_sock_open(unsigned int *port);
+#ifndef _RPMISC_H_
+#define _RPMISC_H_
+
+#ifdef __cplusplus
+extern "C"{
+#endif
+
+void dbg_sock_init(int* sock);
+void dbg_sock_cleanup(int* sock);
+void dbg_sock_close(int* sock);
+int  dbg_sock_accept(int* dbg_sock,int* dbg_listen_sock);
+int  dbg_sock_readchar(int* dbg_sock,int* dbg_listen_sock,int ms);
+int  dbg_listen_sock_open(int* dbg_sock,int* dbg_listen_sock,int *port);
 
 /* Return values for readchar: either character
    code or one of the following*/
 #define RP_VAL_MISCREADCHARRET_TMOUT (-2)
 #define RP_VAL_MISCREADCHARRET_ERR   (-1)
 
-void dbg_sock_putchar(int c);
-int  dbg_sock_write(unsigned char *buf, size_t len);
+void dbg_sock_putchar(int* dbg_sock,int* dbg_listen_sock,int c);
+int  dbg_sock_write(int* dbg_sock,int* dbg_listen_sock,unsigned char *buf, size_t len);
 
 log_func rp_env_init(char *name, int do_daemon);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* _RPMISC_H_ */

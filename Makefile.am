@@ -38,18 +38,18 @@ bin_PROGRAMS = gdbproxy
 gdbproxy_SOURCES = \
     copying.c \
     init.c \
-    remote.c \
     gdbproxy.c \
     rpmisc.c \
-    serial.c \
-    target_skeleton.c \
+    target_atsam.cpp \
+    target_atuc3.cpp \
+    target_atavr8.cpp \
     gdbproxy.h \
-    rpmisc.h \
-    serial.h
+    rpmisc.h 
 
 EXTRA_gdbproxy_SOURCES = getopt.h
 
 gdbproxy_LDADD = @LIBOBJS@
+
 gdbproxy_DEPENDENCIES = @LIBOBJS@
 
 info_TEXINFOS = gdbproxy.texi

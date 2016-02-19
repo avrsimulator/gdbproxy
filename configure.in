@@ -8,11 +8,12 @@ AC_CANONICAL_TARGET
 
 AM_INIT_AUTOMAKE
 
-AM_CONFIG_HEADER(config.h)
+AC_CONFIG_HEADER(config.h)
 
 # Check for programs
 AC_PROG_MAKE_SET
 AC_PROG_CC
+AC_PROG_CXX
 
 # Checks for libraries.
 
@@ -56,8 +57,15 @@ if test "$ac_cv_func_getopt_long_only" != "yes" ; then
     AC_LIBOBJ(getopt1)
 fi
 
+CPPFLAGS="-Iavrmodelapi"
+
 if test "$host_os" = "mingw32" ; then
-    LIBS="$LIBS -lws2_32 -liberty"
+    LIBS="$LIBS -Lavrmodelapi/modelmgr/win32/release -lmodelmgr -lws2_32 -lpthreadGC2 -liberty"
+    CPPFLAGS+=" -DPTW32_STATIC_LIB"
+fi
+
+if test "$host_os" = "linux-gnu" ; then
+    LIBS="$LIBS -Lavrmodelapi/modelmgr/linux64/release -lmodelmgr -ldl -lpthread"
 fi
 
 if test "$host_os" = "cygwin" ; then
@@ -65,8 +73,22 @@ if test "$host_os" = "cygwin" ; then
     LIBS="$LIBS -lws2_32 -lsetupapi"
 fi
 
-AC_CHECK_FILES([target_skeleton.c])
-AC_CHECK_FILES([target_msp430.c])
+# AC_CHECK_FILES only works when not cross compiling. Use "test -r".
+#### if test -r target_skeleton.c ; then
+####     AC_DEFINE([HAVE_TARGET_SKELETON_C], [1], [Default empty target implementation])
+#### fi
+#### if test -r target_msp430.c ; then
+####     AC_DEFINE([HAVE_TARGET_MSP430_C], [1], [A target implementation for the MSP430])
+#### fi
+if test -r ../target_atsam.cpp ; then
+    AC_DEFINE([HAVE_TARGET_ATSAM_CPP], [1], [A target implementation for Atmel SAM simulator models])
+fi
+if test -r ../target_atuc3.cpp ; then
+    AC_DEFINE([HAVE_TARGET_ATUC3_CPP], [1], [A target implementation for Atmel AVR32 UC3 simulator models])
+fi
+if test -r ../target_atavr8.cpp ; then
+    AC_DEFINE([HAVE_TARGET_ATAVR8_CPP], [1], [A target implementation for Atmel AVR 8-bit simulator models])
+fi
 
 AC_CONFIG_FILES(Makefile)
 

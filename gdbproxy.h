@@ -34,6 +34,10 @@
 #ifndef _PROXY_H_
 #define _PROXY_H_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 /*=================  Global Parameters ================================ */
 
 /* Size of data buffer  */
@@ -88,16 +92,6 @@ typedef struct __rp_thread_nfo
     char          more_display[256];
 }
 rp_thread_info;
-
-/* Function to do console output from wait methods */
-typedef void (*out_func)(const char *string);
-
-/* Function to transefer data received as qRcmd response */
-typedef void (*data_func)(const char *string);
-
-/* Function to do logging */
-typedef void (*log_func)(int level, const char *string, ...);
-
 /* Log level definitions */
 #define RP_VAL_LOGLEVEL_EMERG   (0x1234)
 #define RP_VAL_LOGLEVEL_ALERT   (0x4321)
@@ -114,13 +108,23 @@ typedef void (*log_func)(int level, const char *string, ...);
 /* Target, all functions return boolen values */
 typedef struct rp_target_s rp_target;
 
+/* Function to do console output from wait methods */
+typedef void (*out_func)(rp_target* t, const char *string);
+
+/* Function to transefer data received as qRcmd response */
+typedef void (*data_func)(rp_target* t, const char *string);
+
+/* Function to do logging */
+typedef void (*log_func)(int level, const char *string, ...);
+
+
 /* Table entry definition */
 typedef struct
 {
   /* command name */
   const char *name;
   /* command function */
-  int (*function) (int, char **, out_func, data_func);
+  int (*function) (int, char **, out_func, data_func, rp_target*);
   /* one line of help text */
   const char *help;
 } RCMD_TABLE;
@@ -128,6 +132,13 @@ typedef struct
 struct rp_target_s
 {
     rp_target *next;
+
+    int dbg_listen_sock;
+    int dbg_sock;
+    int port;
+    int rp_target_out_valid;
+    int rp_target_running;
+    int hasFpu;
 
     const char *name; /* Unique ASCII name of the target */
 
@@ -286,7 +297,8 @@ struct rp_target_s
                         size_t status_string_len,
                         out_func out,
                         int *implemented,
-                        int *more);
+                        int *more,
+                        rp_target* t);
 
     /* Wait for event, fill (null-terminated) status_string upon successful
        return, if there is not enough space for 'TAA... string' use 
@@ -302,7 +314,8 @@ struct rp_target_s
     int (*wait)(char *status_string,
                 size_t status_string_len,
                 out_func out,
-                int *implemented);
+                int *implemented, 
+                rp_target* t);
 
     /*============= Queries ===============================*/
 
@@ -411,6 +424,7 @@ struct rp_target_s
 #define PACKET_BUFF_SIZE                8192
 
 extern int rp_debug_level;
+extern int optionIndex;
 
 /* Initialization function in init.c */
 rp_target *rp_init(void);
@@ -421,5 +435,9 @@ void rp_show_warranty(void);
 
 int rp_hex_nibble(char in);
 int rp_encode_string(const char *s, char *out, size_t out_size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _PROXY_H_ */

@@ -50,13 +50,13 @@
 
 #if defined(WIN32)
 #include <windows.h>
-#include <winsock2.h>
-#include <ws2tcpip.h>
+
 #endif /* WIN32 */
 
 #include <stdint.h>
 #include <stdio.h>
 #include <assert.h>
+
 
 #if defined(WIN32)
 #include <winsock.h>
@@ -74,22 +74,15 @@ typedef int socklen_t;
 #include <netdb.h>
 #include <signal.h>
 
-#ifdef HAVE_UNISTD_H
+
 #include <unistd.h>
 #include <sys/types.h>
-#endif /* HAVE_UNISTD_H */
 
 #include <sys/stat.h>
 
-#ifdef HAVE_SYSLOG_H
 #include <syslog.h>
-#endif /* HAVE_SYSLOG_H */
 
-#ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
-#else
-#include <time.h>
-#endif /* HAVE_SYS_TIME_H */
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -101,13 +94,6 @@ typedef int socklen_t;
 
 
 /* Sockets */
-#if defined(WIN32)
-static int dbg_sock        = INVALID_SOCKET;
-static int dbg_listen_sock = INVALID_SOCKET;
-#else
-static int dbg_sock        = -1;
-static int dbg_listen_sock = -1;
-#endif
 
 /* Log functions */
 static void rp_log_local(int level, const char *fmt, ...);
@@ -116,13 +102,13 @@ static void rp_log_system(int level, const char *fmt, ...);
 #endif
 
 /* Initialize debugger connection */
-void dbg_sock_init(void)
+void dbg_sock_init(int* sock)
 {
 #if defined(WIN32)
     WSADATA data;
     int ret;
 
-    assert(dbg_sock == INVALID_SOCKET);
+    assert(*sock == INVALID_SOCKET);
 
     if ((ret = WSAStartup(MAKEWORD(2, 1), &data)) != 0)
     {
@@ -130,43 +116,44 @@ void dbg_sock_init(void)
         assert(0);
     }
 #else
-    assert(dbg_sock == -1);
+    assert(*sock == -1);
 #endif
 }
 
-void dbg_sock_cleanup(void)
+void dbg_sock_cleanup(int* sock)
 {
-    dbg_sock_close();
-#if defined(WIN32)
-    WSACleanup();
-#endif
+    dbg_sock_close(sock);
 }
 
 /* Open listen socket in a mode expected by gdb */
-int dbg_listen_sock_open(unsigned int *port)
+int dbg_listen_sock_open(int* dbg_sock,int* dbg_listen_sock,int *port)
 {
     struct sockaddr_in sa;
     int tmp;
     int ret;
-    unsigned int p;
+
+    
 
     assert(port == NULL  ||  *port < 0x10000);
 
 #if defined(WIN32)
-    assert(dbg_sock == INVALID_SOCKET  &&  dbg_listen_sock == INVALID_SOCKET);
+    *dbg_sock = INVALID_SOCKET;
+    *dbg_listen_sock = INVALID_SOCKET;
+    
 
-    if ((dbg_listen_sock = socket(PF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
+    if ((*dbg_listen_sock = socket(PF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
         return  FALSE;
 #else
-    assert(dbg_sock == -1  &&  dbg_listen_sock == -1);
+    *dbg_sock = -1;
+    *dbg_listen_sock = -1;
 
-    if ((dbg_listen_sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+    if ((*dbg_listen_sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
         return  FALSE;
 #endif
 
     tmp = 1;
-    setsockopt(dbg_listen_sock,
-    	       SOL_SOCKET,
+    setsockopt(*dbg_listen_sock,
+               SOL_SOCKET,
                SO_REUSEADDR,
                (char *) &tmp,
                sizeof(tmp));
@@ -180,49 +167,32 @@ int dbg_listen_sock_open(unsigned int *port)
             sa.sin_port = 0;
         else
             sa.sin_port = htons((unsigned short int) *port);
-
-#if defined(WIN32)
-        if ((ret = bind(dbg_listen_sock, (struct sockaddr *) &sa, sizeof (sa))) == SOCKET_ERROR)
+        if ((ret = bind(*dbg_listen_sock, (struct sockaddr *) &sa, sizeof (sa))) != 0)
             return  FALSE;
-#else
-        if ((ret = bind(dbg_listen_sock, (struct sockaddr *) &sa, sizeof (sa))) != 0)
-            return  FALSE;
-#endif
     }
     else
     {
-        /* We have to try for an available port */
-        for (p = RP_PARAM_SOCKPORT_MIN;  p < 0x10000;  p++)
-        {
-            sa.sin_port = htons(p);
-
-#if defined(WIN32)
-            if ((ret = bind(dbg_listen_sock, (struct sockaddr *) &sa, sizeof (sa))) != SOCKET_ERROR)
-                break;
+        sa.sin_port = 0;
+        if ((ret = bind(*dbg_listen_sock, (struct sockaddr *) &sa, sizeof (sa))) != 0)
+            return FALSE;
+#ifndef WIN32
+        unsigned adrLen=sizeof(sa);
 #else
-            if ((ret = bind(dbg_listen_sock, (struct sockaddr *) &sa, sizeof (sa))) == 0)
-                break;
+        int adrLen=sizeof(sa);
 #endif
-        }
-
-        if (p == 0x10000)
-        {
-            /* No sockets available */
-            return  FALSE;
-        }
-
-        *port = p;
+        getsockname(*dbg_listen_sock,(struct sockaddr *) &sa,&adrLen);
+        *port = ntohs(sa.sin_port);
     }
 
 #if defined(WIN32)
-    assert(dbg_listen_sock != INVALID_SOCKET);
+    
 
-    if ((ret = listen(dbg_listen_sock, 1)) == SOCKET_ERROR)
+    if ((ret = listen(*dbg_listen_sock, 1)) == SOCKET_ERROR)
         return  FALSE;
 #else
-    assert(dbg_listen_sock >= 0);
+    
 
-    if ((ret = listen(dbg_listen_sock, 1)) != 0)
+    if ((ret = listen(*dbg_listen_sock, 1)) != 0)
         return  FALSE;
 #endif
 
@@ -230,18 +200,16 @@ int dbg_listen_sock_open(unsigned int *port)
 }
 
 /* Accept incoming connection and set mode expected by gdb */
-int dbg_sock_accept(void)
+int dbg_sock_accept(int* dbg_sock,int* dbg_listen_sock)
 {
     socklen_t tmp;
     struct sockaddr_in sa;
     struct protoent *pe;
 
 #if defined(WIN32)
-    assert(dbg_sock == INVALID_SOCKET);
-    assert(dbg_listen_sock != INVALID_SOCKET);
 
     tmp = sizeof(sa);
-    if ((dbg_sock = accept(dbg_listen_sock, (struct sockaddr *) &sa, &tmp))
+    if ((*dbg_sock = accept(*dbg_listen_sock, (struct sockaddr *) &sa, &tmp))
         == INVALID_SOCKET)
     {
         return  FALSE;
@@ -250,11 +218,12 @@ int dbg_sock_accept(void)
     if ((pe = getprotobyname("tcp")) == NULL)
         return  FALSE;
 #else
-    assert(dbg_sock < 0);
-    assert(dbg_listen_sock >= 0);
+    if (*dbg_sock >= 0)
+        dbg_sock_close(dbg_sock);
+    
 
     tmp = sizeof(sa);
-    if ((dbg_sock = accept(dbg_listen_sock, (struct sockaddr *) &sa, &tmp)) < 0)
+    if ((*dbg_sock = accept(*dbg_listen_sock, (struct sockaddr *) &sa, &tmp)) < 0)
         return  FALSE;
 
     if ((pe = getprotobyname("tcp")) == NULL)
@@ -262,7 +231,7 @@ int dbg_sock_accept(void)
 #endif
 
     tmp = 1;
-    setsockopt(dbg_sock,
+    setsockopt(*dbg_sock,
                pe->p_proto,
                TCP_NODELAY,
                (char *) &tmp,
@@ -272,43 +241,40 @@ int dbg_sock_accept(void)
 }
 
 /* Close connection to debugger side */
-void dbg_sock_close(void)
+void dbg_sock_close(int* sock)
 {
 #if defined(WIN32)
-    if (dbg_sock != INVALID_SOCKET)
+    if (*sock != INVALID_SOCKET)
     {
-        closesocket(dbg_sock);
-        dbg_sock = INVALID_SOCKET;
+        closesocket(*sock);
+        *sock = INVALID_SOCKET;
     }
+
 #else
-    if (dbg_sock >= 0)
+    if (*sock >= 0)
     {
-        close(dbg_sock);
-        dbg_sock = -1;
+        close(*sock);
+        *sock = -1;
     }
 #endif
 }
 
 /* Send character to debugger */
-void dbg_sock_putchar(int c)
+void dbg_sock_putchar(int* dbg_sock,int* dbg_listen_sock,int c)
 {
 #if !defined(WIN32)
     int  ret;
 #endif
     char b[4];
 
-#if defined(WIN32)
-    assert(dbg_sock != INVALID_SOCKET);
-#endif
-
     b[0] = c & 0xff;
 
 #if defined(WIN32)
-    send(dbg_sock, b, 1, 0);
+    send(*dbg_sock, b, 1, 0);
 #else
     do
     {
-        ret = send(dbg_sock, b, 1, 0);
+        ret = send(*dbg_sock, b, 1, 0);
     }
     while (ret < 0  &&  errno == EINTR);
 #endif
@@ -317,7 +283,7 @@ void dbg_sock_putchar(int c)
 /* Read character with timeout, return charcter code, if timeout,
    or error return RP_VAL_MISC....  ms  is timeout in millisaconds 
    or -1 for no timeout */
-int dbg_sock_readchar(int ms)
+int dbg_sock_readchar(int* dbg_sock,int* dbg_listen_sock,int ms)
 {
     static uint8_t buf[PACKET_BUFF_SIZE];
     static int count = 0;
@@ -325,11 +291,6 @@ int dbg_sock_readchar(int ms)
     int ret;
     fd_set rset;
 
-#if defined(WIN32)
-    assert(dbg_sock != INVALID_SOCKET);
-#else
-    assert(dbg_sock >= 0);
-#endif
     assert(ms == -1  ||  ms >= 0);
 
     if (count > 0)
@@ -340,7 +301,7 @@ int dbg_sock_readchar(int ms)
     }
 
     FD_ZERO(&rset);
-    FD_SET(dbg_sock, &rset);
+    FD_SET(*dbg_sock, &rset);
 
 #if defined(WIN32)
     if (ms != -1)
@@ -350,11 +311,11 @@ int dbg_sock_readchar(int ms)
         tv.tv_sec = ms/1000;
         tv.tv_usec = (ms%1000)*1000;
 
-        ret = select(dbg_sock + 1, &rset, NULL, NULL, &tv);
+        ret = select(*dbg_sock + 1, &rset, NULL, NULL, &tv);
     }
     else
     {
-        ret = select(dbg_sock + 1, &rset, NULL, NULL, NULL);
+        ret = select(*dbg_sock + 1, &rset, NULL, NULL, NULL);
     }
 
     if (ret == SOCKET_ERROR)
@@ -363,7 +324,7 @@ int dbg_sock_readchar(int ms)
     if (ret == 0)
         return RP_VAL_MISCREADCHARRET_TMOUT;
 
-    assert(FD_ISSET(dbg_sock, &rset));
+    assert(FD_ISSET(*dbg_sock, &rset));
 #else
     if (ms != -1)
     {
@@ -398,11 +359,11 @@ int dbg_sock_readchar(int ms)
         for (;;)
         {
             FD_ZERO(&rset);
-            FD_SET(dbg_sock, &rset);
+            FD_SET(*dbg_sock, &rset);
 
-            if ((ret = select(dbg_sock + 1, &rset, NULL, NULL, &tv)) > 0)
+            if ((ret = select(*dbg_sock + 1, &rset, NULL, NULL, &tv)) > 0)
             {
-                assert(FD_ISSET(dbg_sock, &rset));
+                assert(FD_ISSET(*dbg_sock, &rset));
                 break;
             }
 
@@ -449,7 +410,7 @@ int dbg_sock_readchar(int ms)
     {
         do
         {
-            ret = select(dbg_sock + 1, &rset, NULL, NULL, NULL);
+            ret = select(*dbg_sock + 1, &rset, NULL, NULL, NULL);
         }
         while (ret < 0  &&  errno == EINTR);
         if (ret < 0)
@@ -458,13 +419,13 @@ int dbg_sock_readchar(int ms)
 #endif
 
 #if defined(WIN32)
-    count = recv(dbg_sock, buf, sizeof (buf), 0);
+    count = recv(*dbg_sock, (char*)buf, sizeof (buf), 0);
     if (count == 0  ||  count == SOCKET_ERROR)
 #else
     /* We need to ignore EINTR */
     do
     {
-        count = recv(dbg_sock, buf, sizeof (buf), 0);
+        count = recv(*dbg_sock, buf, sizeof (buf), 0);
     }
     while (count < 0  &&  errno == EINTR);
     if (count <= 0)
@@ -482,7 +443,7 @@ int dbg_sock_readchar(int ms)
 }
 
 /* Send buffer to debugger */
-int dbg_sock_write(unsigned char *data, size_t len)
+int dbg_sock_write(int* dbg_sock,int* dbg_listen_sock, unsigned char *data, size_t len)
 {
     int ret;
 
@@ -490,13 +451,13 @@ int dbg_sock_write(unsigned char *data, size_t len)
     assert(len > 0);
 
 #if defined(WIN32)
-    ret = send(dbg_sock, data, len, 0);
+    ret = send(*dbg_sock, (char*)data, len, 0);
     if (ret == SOCKET_ERROR  ||  ret != (int) len)
         return  FALSE;
 #else
     do
     {
-        ret = send(dbg_sock, data, len, 0);
+        ret = send(*dbg_sock, data, len, 0);
     }
     while (ret < 0  &&  errno == EINTR);
     if (ret != (int) len)
@@ -521,7 +482,7 @@ log_func rp_env_init(char *name, int do_daemon)
     int fd;
 
     if (!do_daemon)
-	return  rp_log_local;
+    return  rp_log_local;
 
     /* `fork()' so the parent can exit, this returns control to the command
        line or shell invoking your program.  This step is required so that
@@ -590,12 +551,12 @@ log_func rp_env_init(char *name, int do_daemon)
        file-descriptors open you should close them, since there's a limit on
        number of concurrent file descriptors. */
 
-    /* Establish new open descriptors for stdin, stdout and stderr. Even if
+    /* Establish new open descriptors for stdin, stdout and stdout. Even if
        you don't plan to use them, it is still a good idea to have them open.
        The precise handling of these is a matter of taste; if you have a
-       logfile, for example, you might wish to open it as stdout or stderr,
+       logfile, for example, you might wish to open it as stdout or stdout,
        and open `/dev/null' as stdin; alternatively, you could open
-       `/dev/console' as stderr and/or stdout, and `/dev/null' as stdin, or
+       `/dev/console' as stdout and/or stdout, and `/dev/null' as stdin, or
        any other combination that makes sense for your particular daemon.
        A number of systems treat file descriptors 0, 1 and 2 specially, and
        can cause a lot of trouble if they are left to be used as ordinary
@@ -617,7 +578,6 @@ log_func rp_env_init(char *name, int do_daemon)
     return  rp_log_system;
 }
 #endif
-
 static void rp_log_local(int level, const char *fmt, ...)
 {
     va_list args;
@@ -673,6 +633,7 @@ static void rp_log_local(int level, const char *fmt, ...)
 
     fprintf(stderr, "\n");
     fflush(stderr);
+
 }
 
 #if !defined(WIN32)

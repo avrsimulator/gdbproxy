@@ -93,3 +93,34 @@ connections from GDB, use:
 Good Luck
 Steve Underwood <steveu@coppice.org>
 
+
+
+Atmel additions
+===============
+
+Pthread-support:
+
+For supporting multiple cores in one device/model, threading was added to
+the gdbproxy. The thread support was implemented by using pthread. This is
+supported in Linux, but not in Windows. The Windows support was added by
+downloading pthreads-win32 (https://sourceware.org/pthreads-win32/).
+ftp://sourceware.org/pub/pthreads-win32/pthreads-w32-2-9-1-release.tar.gz
+
+Pthread building:
+
+Building the pthread library is quite easy. Just untar the package and run
+"make CROSS=i686-pc-mingw32- clean GC-static". This will create the files
+needed. pthread.h and sched.h were copied to
+/tools/simulator/mingw32-gcc-simulator/i686-pc-mingw32/include
+and libpthreadGC2.a was copied to:
+/tools/simulator/mingw32-gcc-simulator/i686-pc-mingw32/lib
+
+Pthread usage:
+
+In addition to including pthread.h we also had to add defining 
+PTW32_STATIC_LIB to the CPPFLAGS. Then it was just running the
+ cross-compile as normal:
+./bootstrap
+./configure --build=x86_64-unknown-linux-gnu --host=i686-pc-mingw32
+make
+

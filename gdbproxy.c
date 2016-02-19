@@ -1,18 +1,18 @@
 /* Copyright (C) 1999-2001 Quality Quorum, Inc.
    Copyright (C) 2002 Chris Liechti and Steve Underwood
-                 2005 Martin Strubel (fixed pNN packet bug)
- 
+   2005 Martin Strubel (fixed pNN packet bug)
+
    Redistribution and use in source and binary forms, with or without
    modification, are permitted provided that the following conditions are met:
- 
-     1. Redistributions of source code must retain the above copyright notice,
-        this list of conditions and the following disclaimer.
-     2. Redistributions in binary form must reproduce the above copyright
-        notice, this list of conditions and the following disclaimer in the
-        documentation and/or other materials provided with the distribution.
-     3. The name of the author may not be used to endorse or promote products
-        derived from this software without specific prior written permission.
- 
+
+   1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+   2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+   3. The name of the author may not be used to endorse or promote products
+   derived from this software without specific prior written permission.
+
    THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
    WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
    MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
@@ -23,39 +23,39 @@
    WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
    OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
    ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- 
+
    QQI can be contacted as qqi@world.std.com
-   
-    
+
+
    Main remote proxy unit.
-   
+
    Exported Data:
-     None
-  
+   None
+
    Imported Data:
-     None
-  
+   None
+
    Static Data:
-     rp_t_list            - list of targets
-     rp_debug_level       - debug flag
-     rp_target_out_valid  - to help catch uunappropriate output 
-                            from target 
-     rp_log               - pointer to a current log function
-  
+   rp_t_list            - list of targets
+   rp_debug_level       - debug flag
+   rp_target_out_valid  - to help catch uunappropriate output 
+   from target 
+   rp_log               - pointer to a current log function
+
    Global Functions:  
-     main        - main 
-   
+   main        - main 
+
    Static Functions:
-     rp_putpkt          - send packet to debugger
-     rp_getpkt          - get packet from debugger
-     rp_console_output  - send output to debugger console
-     rp_data_output     - send data to debugger (used remcmd)
-     rp_decode_xxxxx    - various decode functions
-     rp_encode_xxxxx    - various encode functions
-     rp_usage           - usage/help
-     rp_write_xxxxx     - encode result of operation
-  
-  
+   rp_putpkt          - send packet to debugger
+   rp_getpkt          - get packet from debugger
+   rp_console_output  - send output to debugger console
+   rp_data_output     - send data to debugger (used remcmd)
+   rp_decode_xxxxx    - various decode functions
+   rp_encode_xxxxx    - various encode functions
+   rp_usage           - usage/help
+   rp_write_xxxxx     - encode result of operation
+
+
    $Id: gdbproxy.c,v 1.12 2010/02/10 12:45:50 vapier Exp $ */
 
 #ifdef HAVE_CONFIG_H
@@ -65,6 +65,8 @@
 #if defined(WIN32)
 #include <windows.h>
 #endif
+
+#include <pthread.h>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -77,7 +79,7 @@
 
 #ifdef  HAVE_GETOPT_LONG_ONLY
 #ifndef HAVE_GETOPT_H
- #error "configuration error: unexpected combination"
+#error "configuration error: unexpected combination"
 #endif /* HAVE_GETOPT_H */
 #include <getopt.h>
 #else
@@ -92,68 +94,67 @@ static rp_target *rp_t_list;
 
 /* Debug flag */
 int rp_debug_level = 0;
+int optionIndex = 0;
 
 /* Flag to catch unexpected output from target */
-static int rp_target_out_valid = FALSE;
 
-static int rp_target_running = FALSE;
 
 /* Current log */
 static log_func rp_log = NULL;
 
 /* Connection to debugger */
-static int rp_putpkt(const char *buf);
-static int rp_getpkt(char *buf, size_t buf_len, size_t *in_len, int timeout);
-static void rp_console_output(const char *buf);
-static void rp_data_output(const char *buf);
+static int rp_putpkt(rp_target* t, const char *buf);
+static int rp_getpkt(rp_target* t, char *buf, size_t buf_len, size_t *in_len, int timeout);
+static void rp_console_output(rp_target* t, const char *buf);
+static void rp_data_output(rp_target* t, const char *buf);
 
 /* Decode/encode functions */
 static int rp_decode_data(const char *in,
-                          unsigned char *out,
-                          size_t out_size,
-                          size_t *len);
+        unsigned char *out,
+        size_t out_size,
+        size_t *len);
 
 static int rp_decode_reg(const char *in, unsigned int *reg_no);
 
 static int rp_decode_reg_assignment(const char *in,
-                                    unsigned int *reg_no,
-                                    unsigned char *out,
-                                    size_t out_size,
-                                    size_t *len);
+        unsigned int *reg_no,
+        unsigned char *out,
+        size_t out_size,
+        size_t *len);
 static int rp_decode_mem(const char *in,
-                         uint64_t *addr,
-                         size_t *len);
+        uint64_t *addr,
+        size_t *len);
 static int rp_decode_process_query(const char *in,
-                                   unsigned int *mask,
-                                   rp_thread_ref *ref);
+        unsigned int *mask,
+        rp_thread_ref *ref);
 static int rp_decode_break(const char *in,
-                           int *type,
-                           uint64_t *addr,
-                           unsigned int *len);
+        int *type,
+        uint64_t *addr,
+        unsigned int *len);
 static int rp_decode_list_query(const char *in,
-                                int *first,
-                                size_t *max,
-                                rp_thread_ref *arg);
+        int *first,
+        size_t *max,
+        rp_thread_ref *arg);
 static int rp_encode_regs(const unsigned char *data,
-                          const unsigned char *avail,
-                          size_t data_len,
-                          char *out,
-                          size_t out_size);
+        const unsigned char *avail,
+        size_t data_len,
+        char *out,
+        size_t out_size);
 static int rp_encode_data(const unsigned char *data,
-                          size_t data_len,
-                          char *out,
-                          size_t out_size);
+        size_t data_len,
+        char *out,
+        size_t out_size);
 static int rp_encode_process_query_response(unsigned int mask,
-                                            const rp_thread_ref *ref,
-                                            const rp_thread_info *info,
-                                            char *out,
-                                            size_t out_size);
+        const rp_thread_ref *ref,
+        const rp_thread_info *info,
+        char *out,
+        size_t out_size);
 static int rp_encode_list_query_response(size_t count,
-                                         int done,
-                                         const rp_thread_ref *arg,
-                                         const rp_thread_ref *found,
-                                         char *out,
-                                         size_t out_size);
+        int done,
+        const rp_thread_ref *arg,
+        const rp_thread_ref *found,
+        char *out,
+        size_t out_size);
 static int rp_decode_nibble(const char *in, unsigned int *nibble);
 static int rp_decode_byte(const char *in, unsigned int *byte_ptr);
 static int rp_decode_4bytes(const char *in, uint32_t *val);
@@ -174,96 +175,96 @@ static int extended_protocol;
 static char *name;
 
 static void handle_search_memory_command(char * const in_buf,
-                                         int in_len,
-                                         char *out_buf,
-                                         int out_buf_len,
-                                         rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t);
 static void handle_thread_commands(char * const in_buf,
-                                   int in_len,
-                                   char *out_buf,
-                                   int out_buf_len,
-                                   rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t);
 static void handle_read_registers_command(char * const in_buf,
-                                          int in_len,
-                                          char *out_buf,
-                                          int out_buf_len,
-                                          rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t);
 static void handle_write_registers_command(char * const in_buf,
-                                           int in_len,
-                                           char *out_buf,
-                                           int out_buf_len,
-                                           rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t);
 static void handle_read_single_register_command(char * const in_buf,
-                                                int in_len,
-                                                char *out_buf,
-                                                int out_buf_len,
-                                                rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t);
 static void handle_write_single_register_command(char * const in_buf,
-                                                 int in_len,
-                                                 char *out_buf,
-                                                 int out_buf_len,
-                                                 rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t);
 static void handle_read_memory_command(char * const in_buf,
-                                       int in_len,
-                                       char *out_buf,
-                                       int out_buf_len,
-                                       rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t);
 static void handle_write_memory_command(char * const in_buf,
-                                        int in_len,
-                                        char *out_buf,
-                                        int out_buf_len,
-                                        rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t);
 static void handle_running_commands(char * const in_buf,
-                                    int in_len,
-                                    char *out_buf,
-                                    int out_buf_len,
-                                    char *status_string,
-                                    int status_string_len,
-                                    rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        char *status_string,
+        int status_string_len,
+        rp_target *t);
 static int handle_kill_command(char * const in_buf,
-                               int in_len,
-                               char *out_buf,
-                               int out_buf_len,
-                               rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t);
 static int handle_thread_alive_command(char * const in_buf,
-                                       int in_len,
-                                       char *out_buf,
-                                       int out_buf_len,
-                                       rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t);
 static int handle_restart_target_command(char * const in_buf,
-                                         int in_len,
-                                         char *out_buf,
-                                         int out_buf_len,
-                                         rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t);
 static void handle_detach_command(char * const in_buf,
-                                  int in_len,
-                                  char *out_buf,
-                                  int out_buf_len,
-                                  rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t);
 static void handle_query_command(char * const in_buf,
-                                 int in_len,
-                                 char *out_buf,
-                                 int out_buf_len,
-                                 rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t);
 static void handle_breakpoint_command(char * const in_buf,
-                                      int in_len,
-                                      char *out_buf,
-                                      int out_buf_len,
-                                      rp_target *t);
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t);
 static int handle_rcmd_command(char *in_buf,
-			       out_func of,
-			       data_func df,
-			       rp_target *t);
+        out_func of,
+        data_func df,
+        rp_target *t);
 static int rp_rcmd_help(int argc,
-			char *argv[],
-			out_func of,
-			data_func df,
-			rp_target *t);
+        char *argv[],
+        out_func of,
+        data_func df,
+        rp_target *t);
 static int rp_rcmd_set(int argc,
-		       char *argv[],
-		       out_func of,
-		       data_func df,
-		       rp_target *t);
+        char *argv[],
+        out_func of,
+        data_func df,
+        rp_target *t);
 
 /* Remote command */
 #define RP_RCMD(name, hlp) {#name, rp_rcmd_##name, hlp}
@@ -271,19 +272,19 @@ static int rp_rcmd_set(int argc,
 /* Table entry definition */
 typedef struct
 {
-  /* command name */
-  const char *name;
-  /* command function */
-  int (*function) (int, char **, out_func, data_func, rp_target *);
-  /* one line of help text */
-  const char *help;
+    /* command name */
+    const char *name;
+    /* command function */
+    int (*function) (int, char **, out_func, data_func, rp_target *);
+    /* one line of help text */
+    const char *help;
 } RP_RCMD_TABLE;
 
 static void handle_search_memory_command(char * const in_buf,
-                                         int in_len,
-                                         char *out_buf,
-                                         int out_buf_len,
-                                         rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t)
 {
     uint64_t addr;
     uint32_t pattern;
@@ -315,10 +316,10 @@ static void handle_search_memory_command(char * const in_buf,
 }
 
 static void handle_thread_commands(char * const in_buf,
-                                   int in_len,
-                                   char *out_buf,
-                                   int out_buf_len,
-                                   rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t)
 {
     int ret;
     rp_thread_ref ref;
@@ -333,39 +334,39 @@ static void handle_thread_commands(char * const in_buf,
     /* Set thread */
     switch (in_buf[1])
     {
-    case 'c':
-        in = &in_buf[2];
-        if (!rp_decode_uint64(&in, &ref.val, '\0'))
-        {
-            rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
-            break;
-        }
+        case 'c':
+            in = &in_buf[2];
+            if (!rp_decode_uint64(&in, &ref.val, '\0'))
+            {
+                rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
+                break;
+            }
 
-        ret = t->set_ctrl_thread(&ref);
-        rp_write_retval(ret, out_buf);
-        break;
-    case 'g':
-        in = &in_buf[2];
-        if (!rp_decode_uint64(&in, &ref.val, '\0'))
-        {
-            rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
+            ret = t->set_ctrl_thread(&ref);
+            rp_write_retval(ret, out_buf);
             break;
-        }
+        case 'g':
+            in = &in_buf[2];
+            if (!rp_decode_uint64(&in, &ref.val, '\0'))
+            {
+                rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
+                break;
+            }
 
-        ret = t->set_gen_thread(&ref);
-        rp_write_retval(ret, out_buf);
-        break;
-    default:
-        rp_log(RP_VAL_LOGLEVEL_ERR, "%s: Bad H command", name);
-        break;
+            ret = t->set_gen_thread(&ref);
+            rp_write_retval(ret, out_buf);
+            break;
+        default:
+            rp_log(RP_VAL_LOGLEVEL_ERR, "%s: Bad H command", name);
+            break;
     }
 }
 
 static void handle_read_registers_command(char * const in_buf,
-                                          int in_len,
-                                          char *out_buf,
-                                          int out_buf_len,
-                                          rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t)
 {
     int ret;
     size_t len;
@@ -375,34 +376,34 @@ static void handle_read_registers_command(char * const in_buf,
     /* Get all registers. Format: 'g'. Note we do not do any
        data caching - all caching is done by the debugger */
     ret = t->read_registers(data_buf,
-                            avail_buf,
-                            sizeof(data_buf),
-                            &len);
+            avail_buf,
+            sizeof(data_buf),
+            &len);
     switch (ret)
     {
-    case RP_VAL_TARGETRET_OK:
-        assert(len <= RP_PARAM_DATABYTES_MAX);
-        rp_encode_regs(data_buf,
-                       avail_buf,
-                       len,
-                       out_buf,
-                       out_buf_len);
-        break;
-    case RP_VAL_TARGETRET_ERR:
-        rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
-        break;
-    default:
-        /* This should not happen */
-        assert(0);
-        break;
+        case RP_VAL_TARGETRET_OK:
+            assert(len <= RP_PARAM_DATABYTES_MAX);
+            rp_encode_regs(data_buf,
+                    avail_buf,
+                    len,
+                    out_buf,
+                    out_buf_len);
+            break;
+        case RP_VAL_TARGETRET_ERR:
+            rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
+            break;
+        default:
+            /* This should not happen */
+            assert(0);
+            break;
     }
 }
 
 static void handle_write_registers_command(char * const in_buf,
-                                           int in_len,
-                                           char *out_buf,
-                                           int out_buf_len,
-                                           rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t)
 {
     int ret;
     size_t len;
@@ -421,10 +422,10 @@ static void handle_write_registers_command(char * const in_buf,
 }
 
 static void handle_read_single_register_command(char * const in_buf,
-                                                int in_len,
-                                                char *out_buf,
-                                                int out_buf_len,
-                                                rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t)
 {
     int ret;
     unsigned int reg_no;
@@ -440,38 +441,38 @@ static void handle_read_single_register_command(char * const in_buf,
     }
 
     ret = t->read_single_register(reg_no,
-                                  data_buf,
-                                  avail_buf,
-                                  sizeof(data_buf),
-                                  &len);
+            data_buf,
+            avail_buf,
+            sizeof(data_buf),
+            &len);
     switch (ret)
     {
-    case RP_VAL_TARGETRET_OK:
-        assert(len <= RP_PARAM_DATABYTES_MAX);
-        rp_encode_regs(data_buf,
-                       avail_buf,
-                       len,
-                       out_buf,
-                       out_buf_len);
-        break;
-    case RP_VAL_TARGETRET_ERR:
-        rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
-        break;
-    // handle targets non supporting single register read
-    case RP_VAL_TARGETRET_NOSUPP:
-        break;
-    default:
-        /* This should not happen */
-        assert(0);
-        break;
+        case RP_VAL_TARGETRET_OK:
+            assert(len <= RP_PARAM_DATABYTES_MAX);
+            rp_encode_regs(data_buf,
+                    avail_buf,
+                    len,
+                    out_buf,
+                    out_buf_len);
+            break;
+        case RP_VAL_TARGETRET_ERR:
+            rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
+            break;
+            // handle targets non supporting single register read
+        case RP_VAL_TARGETRET_NOSUPP:
+            break;
+        default:
+            /* This should not happen */
+            assert(0);
+            break;
     }
 }
 
 static void handle_write_single_register_command(char * const in_buf,
-                                                 int in_len,
-                                                 char *out_buf,
-                                                 int out_buf_len,
-                                                 rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t)
 {
     int ret;
     unsigned int reg_no;
@@ -480,10 +481,10 @@ static void handle_write_single_register_command(char * const in_buf,
 
     /* Write a single register. Format: 'PNN=XXXXX' */
     ret = rp_decode_reg_assignment(&in_buf[1],
-                                   &reg_no,
-                                   data_buf,
-                                   sizeof(data_buf),
-                                   &len);
+            &reg_no,
+            data_buf,
+            sizeof(data_buf),
+            &len);
     if (!ret)
     {
         rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
@@ -497,10 +498,10 @@ static void handle_write_single_register_command(char * const in_buf,
 }
 
 static void handle_read_memory_command(char * const in_buf,
-                                       int in_len,
-                                       char *out_buf,
-                                       int out_buf_len,
-                                       rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t)
 {
     int ret;
     size_t len;
@@ -521,25 +522,25 @@ static void handle_read_memory_command(char * const in_buf,
     ret = t->read_mem(addr, data_buf, len, &len);
     switch (ret)
     {
-    case RP_VAL_TARGETRET_OK:
-        assert(len <= RP_PARAM_DATABYTES_MAX);
-        rp_encode_data(data_buf, len, out_buf, out_buf_len);
-        break;
-    case RP_VAL_TARGETRET_ERR:
-        rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
-        break;
-    default:
-        /* This should not happen */
-        assert(0);
-        break;
+        case RP_VAL_TARGETRET_OK:
+            assert(len <= RP_PARAM_DATABYTES_MAX);
+            rp_encode_data(data_buf, len, out_buf, out_buf_len);
+            break;
+        case RP_VAL_TARGETRET_ERR:
+            rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
+            break;
+        default:
+            /* This should not happen */
+            assert(0);
+            break;
     }
 }
 
 static void handle_write_memory_command(char * const in_buf,
-                                        int in_len,
-                                        char *out_buf,
-                                        int out_buf_len,
-                                        rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t)
 {
     int ret;
     char *cp;
@@ -575,12 +576,12 @@ static void handle_write_memory_command(char * const in_buf,
 }
 
 static void handle_running_commands(char * const in_buf,
-                                    int in_len,
-                                    char *out_buf,
-                                    int out_buf_len,
-                                    char *status_string,
-                                    int status_string_len,
-                                    rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        char *status_string,
+        int status_string_len,
+        rp_target *t)
 {
     int step;
     uint32_t sig;
@@ -664,21 +665,22 @@ static void handle_running_commands(char * const in_buf,
     }
 
     /* Now we have to wait for the target */
-    rp_target_running = TRUE;
-    rp_target_out_valid = TRUE;
+    t->rp_target_running = TRUE;
+    t->rp_target_out_valid = TRUE;
 
     /* Try a partial wait first */
     ret = t->wait_partial(TRUE,
-		          status_string,
-      			  status_string_len,
-                          rp_console_output,
-			  &implemented,
-			  &more);
+            status_string,
+            status_string_len,
+            rp_console_output,
+            &implemented,
+            &more,
+            t);
     if (ret != RP_VAL_TARGETRET_OK)
     {
         rp_write_retval(ret, out_buf);
-        rp_target_out_valid = FALSE;
-        rp_target_running = FALSE;
+        t->rp_target_out_valid = FALSE;
+        t->rp_target_running = FALSE;
         return;
     }
     if (!implemented)
@@ -686,9 +688,10 @@ static void handle_running_commands(char * const in_buf,
         /* There is no pertial wait facility for this target, so use a
            blocking wait */
         ret = t->wait(status_string,
-		      status_string_len,
-                      rp_console_output,
-		      &implemented);
+                status_string_len,
+                rp_console_output,
+                &implemented,
+                t);
 
         assert(implemented);
 
@@ -701,8 +704,8 @@ static void handle_running_commands(char * const in_buf,
         {
             rp_write_retval(ret, out_buf);
         }
-        rp_target_out_valid = FALSE;
-        rp_target_running = FALSE;
+        t->rp_target_out_valid = FALSE;
+        t->rp_target_running = FALSE;
         return;
     }
     if (!more)
@@ -710,16 +713,16 @@ static void handle_running_commands(char * const in_buf,
         /* We are done. The program has already stopped */
         assert(strlen(status_string) < status_string_len);
         strcpy(out_buf, status_string);
-        rp_target_out_valid = FALSE;
-        rp_target_running = FALSE;
+        t->rp_target_out_valid = FALSE;
+        t->rp_target_running = FALSE;
     }
 }
 
 static int handle_kill_command(char * const in_buf,
-                               int in_len,
-                               char *out_buf,
-                               int out_buf_len,
-                               rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t)
 {
     int ret;
 
@@ -727,28 +730,28 @@ static int handle_kill_command(char * const in_buf,
 
     if (!extended_protocol)
     {
-        dbg_sock_close();
+        dbg_sock_close(&(t->dbg_sock));
 
         if (!can_restart)
         {
             /* If the current target cannot restart, we have little choice but
                to exit right now. */
             rp_log(RP_VAL_LOGLEVEL_INFO,
-                   "%s: session killed. Exiting",
-                   name);
-            dbg_sock_cleanup();
+                    "%s: session killed. Exiting",
+                    name);
+            dbg_sock_cleanup(&(t->dbg_sock));
             exit(0);
         }
 
         rp_log(RP_VAL_LOGLEVEL_INFO,
-               "%s: session killed. Will wait for a new connection",
-               name);
+                "%s: session killed. Will wait for a new connection",
+                name);
         return  FALSE;
     }
 
     rp_log(RP_VAL_LOGLEVEL_INFO,
-           "%s: remote proxy restarting",
-           name);
+            "%s: remote proxy restarting",
+            name);
 
     /* Let us do our best while starting system */
     if (!can_restart)
@@ -765,32 +768,32 @@ static int handle_kill_command(char * const in_buf,
     {
         /* There is no point in continuing */
         rp_log(RP_VAL_LOGLEVEL_ERR,
-               "%s: unable to restart target %s",
-               name,
-               t->name);
+                "%s: unable to restart target %s",
+                name,
+                t->name);
         rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
-        rp_putpkt(out_buf);
-        dbg_sock_close();
+        rp_putpkt(t, out_buf);
+        dbg_sock_close(&(t->dbg_sock));
 
         if (!can_restart)
         {
-            dbg_sock_cleanup();
+            dbg_sock_cleanup(&(t->dbg_sock));
             exit(1);
         }
 
         rp_log(RP_VAL_LOGLEVEL_INFO,
-               "%s: will wait for a new connection",
-               name);
+                "%s: will wait for a new connection",
+                name);
         return  FALSE;
     }
     return  TRUE;
 }
 
 static int handle_thread_alive_command(char * const in_buf,
-                                       int in_len,
-                                       char *out_buf,
-                                       int out_buf_len,
-                                       rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t)
 {
     int ret;
     int alive;
@@ -822,13 +825,13 @@ static int handle_thread_alive_command(char * const in_buf,
 }
 
 static int handle_restart_target_command(char * const in_buf,
-                                         int in_len,
-                                         char *out_buf,
-                                         int out_buf_len,
-                                         rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t)
 {
     int ret;
-    
+
     /* Restarting the target is only supported in the extended protocol. */
     if (!extended_protocol)
         return  FALSE;
@@ -840,45 +843,45 @@ static int handle_restart_target_command(char * const in_buf,
     {
         /* There is no point to continuing */
         rp_log(RP_VAL_LOGLEVEL_ERR,
-   	       "%s: unable to restart target %s",
-               name,
-	       t->name);
+                "%s: unable to restart target %s",
+                name,
+                t->name);
         rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
-        rp_putpkt(out_buf);
-        dbg_sock_close();
+        rp_putpkt(t, out_buf);
+        dbg_sock_close(&(t->dbg_sock));
 
         if (!can_restart)
         {
             /* If the current target cannot restart, we have little choice but
                to exit right now. */
             rp_log(RP_VAL_LOGLEVEL_INFO,
-                   "%s: target is not restartable. Exiting",
-                   name);
-            dbg_sock_cleanup();
+                    "%s: target is not restartable. Exiting",
+                    name);
+            dbg_sock_cleanup(&(t->dbg_sock));
             exit(1);
         }
 
         rp_log(RP_VAL_LOGLEVEL_INFO,
-               "%s: will wait for a new connection",
-               name);
+                "%s: will wait for a new connection",
+                name);
         return  -1;
     }
     return  TRUE;
 }
 
 static void handle_detach_command(char * const in_buf,
-                                  int in_len,
-                                  char *out_buf,
-                                  int out_buf_len,
-                                  rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t)
 {
     int  ret;
 
     ret = t->disconnect();
 
     /* Note: The current GDB does not expect a reply */
-    rp_putpkt(out_buf);
-    dbg_sock_close();
+    rp_putpkt(t, out_buf);
+    dbg_sock_close(&(t->dbg_sock));
 
     rp_log(RP_VAL_LOGLEVEL_INFO, "%s: debugger detached", name);
 
@@ -887,22 +890,22 @@ static void handle_detach_command(char * const in_buf,
         /* If the current target cannot restart, we have little choice but
            to exit right now. */
         rp_log(RP_VAL_LOGLEVEL_INFO,
-               "%s: target is not restartable. Exiting",
-               name);
-        dbg_sock_cleanup();
+                "%s: target is not restartable. Exiting",
+                name);
+        dbg_sock_cleanup(&(t->dbg_sock));
         exit(0);
     }
 
     rp_log(RP_VAL_LOGLEVEL_INFO,
-           "%s: will wait for a new connection",
-           name);
+            "%s: will wait for a new connection",
+            name);
 }
 
 static void handle_query_command(char * const in_buf,
-                                 int in_len,
-                                 char *out_buf,
-                                 int out_buf_len,
-                                 rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t)
 {
     int  ret;
     rp_thread_ref ref;
@@ -922,8 +925,8 @@ static void handle_query_command(char * const in_buf,
     if (in_len == 1)
     {
         rp_log(RP_VAL_LOGLEVEL_ERR,
-               "%s: bad 'q' command received",
-               name);
+                "%s: bad 'q' command received",
+                name);
         return;
     }
     if (strncmp(in_buf + 1, "Offsets", 7) == 0)
@@ -986,86 +989,86 @@ static void handle_query_command(char * const in_buf,
 
     if (strncmp(in_buf + 1, "ThreadExtraInfo,", 16) == 0)
     {
-      char data_buf[RP_PARAM_DATABYTES_MAX];
-      const char *in;
+        char data_buf[RP_PARAM_DATABYTES_MAX];
+        const char *in;
 
-      if (t->threadextrainfo_query == NULL)
-	{
-	  rp_write_retval(RP_VAL_TARGETRET_NOSUPP, out_buf);
-	  return;
-	}
+        if (t->threadextrainfo_query == NULL)
+        {
+            rp_write_retval(RP_VAL_TARGETRET_NOSUPP, out_buf);
+            return;
+        }
 
-      in = &in_buf[17];
-      if (!(ret = rp_decode_uint64(&in, &ref.val, '\0')))
-	{
-	  rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
-	  return;
-	}
+        in = &in_buf[17];
+        if (!(ret = rp_decode_uint64(&in, &ref.val, '\0')))
+        {
+            rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
+            return;
+        }
 
-      ret = t->threadextrainfo_query (&ref, data_buf, RP_PARAM_DATABYTES_MAX);
-      switch (ret)
-	{
-	case RP_VAL_TARGETRET_OK:
-	  rp_encode_data ((unsigned char *)data_buf, strlen (data_buf),
-			  out_buf, out_buf_len);
-	  break;
-	case RP_VAL_TARGETRET_ERR:
-	case RP_VAL_TARGETRET_NOSUPP:
-	  rp_write_retval (ret, out_buf);
-	  break;
-	default:
-	  assert(0);
-	  break;
-	}
-      return;
+        ret = t->threadextrainfo_query (&ref, data_buf, RP_PARAM_DATABYTES_MAX);
+        switch (ret)
+        {
+            case RP_VAL_TARGETRET_OK:
+                rp_encode_data ((unsigned char *)data_buf, strlen (data_buf),
+                        out_buf, out_buf_len);
+                break;
+            case RP_VAL_TARGETRET_ERR:
+            case RP_VAL_TARGETRET_NOSUPP:
+                rp_write_retval (ret, out_buf);
+                break;
+            default:
+                assert(0);
+                break;
+        }
+        return;
     }
 
     if (strncmp(in_buf + 1, "fThreadInfo", 11) == 0)
     {
-      if (t->threadinfo_query == NULL)
-	{
-	  rp_write_retval (RP_VAL_TARGETRET_NOSUPP, out_buf);
-	  return;
-	}
+        if (t->threadinfo_query == NULL)
+        {
+            rp_write_retval (RP_VAL_TARGETRET_NOSUPP, out_buf);
+            return;
+        }
 
-      ret = t->threadinfo_query (1, out_buf, out_buf_len);
-      switch (ret)
-	{
-	case RP_VAL_TARGETRET_OK:
-	  break;
-	case RP_VAL_TARGETRET_NOSUPP:
-	case RP_VAL_TARGETRET_ERR:
-	  rp_write_retval(ret, out_buf);
-	  break;
-	default:
-	  /* This should not happen */
-	  assert(0);
-	}
-      return;
+        ret = t->threadinfo_query (1, out_buf, out_buf_len);
+        switch (ret)
+        {
+            case RP_VAL_TARGETRET_OK:
+                break;
+            case RP_VAL_TARGETRET_NOSUPP:
+            case RP_VAL_TARGETRET_ERR:
+                rp_write_retval(ret, out_buf);
+                break;
+            default:
+                /* This should not happen */
+                assert(0);
+        }
+        return;
     }
 
     if (strncmp(in_buf + 1, "sThreadInfo", 11) == 0)
     {
-      if (t->threadinfo_query == NULL)
-	{
-	  rp_write_retval(RP_VAL_TARGETRET_NOSUPP, out_buf);
-	  return;
-	}
+        if (t->threadinfo_query == NULL)
+        {
+            rp_write_retval(RP_VAL_TARGETRET_NOSUPP, out_buf);
+            return;
+        }
 
-      ret = t->threadinfo_query(0, out_buf, out_buf_len);
-      switch (ret)
-	{
-	case RP_VAL_TARGETRET_OK:
-	  break;
-	case RP_VAL_TARGETRET_NOSUPP:
-	case RP_VAL_TARGETRET_ERR:
-	  rp_write_retval(ret, out_buf);
-	  break;
-	default:
-	  /* This should not happen */
-	  assert(0);
-	}
-      return;
+        ret = t->threadinfo_query(0, out_buf, out_buf_len);
+        switch (ret)
+        {
+            case RP_VAL_TARGETRET_OK:
+                break;
+            case RP_VAL_TARGETRET_NOSUPP:
+            case RP_VAL_TARGETRET_ERR:
+                rp_write_retval(ret, out_buf);
+                break;
+            default:
+                /* This should not happen */
+                assert(0);
+        }
+        return;
     }
 
     if (strncmp(in_buf + 1, "fProcessInfo", 12) == 0)
@@ -1085,137 +1088,137 @@ static void handle_query_command(char * const in_buf,
     if (strncmp(in_buf + 1, "Rcmd,", 5) == 0)
     {
         /* Remote command */
-        rp_target_out_valid = TRUE;
+        t->rp_target_out_valid = TRUE;
         ret = handle_rcmd_command(&in_buf[6],
-				  rp_console_output,
-				  rp_data_output,
-				  t);
-        rp_target_out_valid = FALSE;
+                rp_console_output,
+                rp_data_output,
+                t);
+        t->rp_target_out_valid = FALSE;
         rp_write_retval(ret, out_buf);
         return;
     }
 
     if (strncmp(in_buf + 1, "Supported", 9) == 0
-	&& (in_buf[10] == ':' || in_buf[10] == '\0'))
+            && (in_buf[10] == ':' || in_buf[10] == '\0'))
     {
-      /* Features supported */
-      if (t->packetsize_query == NULL)
-	{
-	  rp_write_retval(RP_VAL_TARGETRET_NOSUPP, out_buf);
-	  return;
-	}
+        /* Features supported */
+        if (t->packetsize_query == NULL)
+        {
+            sprintf(out_buf, "PacketSize=%x", RP_PARAM_INOUTBUF_SIZE);
+            return;
+        }
 
-      ret = t->packetsize_query(out_buf, out_buf_len);
-      switch (ret)
-	{
-	case RP_VAL_TARGETRET_OK:
-	  break;
-	case RP_VAL_TARGETRET_NOSUPP:
-	case RP_VAL_TARGETRET_ERR:
-	  rp_write_retval(ret, out_buf);
-	  break;
-	default:
-	  /* This should not happen */
-	  assert(0);
-	}
-      return;
+        ret = t->packetsize_query(out_buf, out_buf_len);
+        switch (ret)
+        {
+            case RP_VAL_TARGETRET_OK:
+                break;
+            case RP_VAL_TARGETRET_NOSUPP:
+            case RP_VAL_TARGETRET_ERR:
+                rp_write_retval(ret, out_buf);
+                break;
+            default:
+                /* This should not happen */
+                assert(0);
+        }
+        return;
     }
 
     switch (in_buf[1])
     {
-    case 'C':
-        /* Current thread query */
-        ret = t->current_thread_query(&ref);
+        case 'C':
+            /* Current thread query */
+            ret = t->current_thread_query(&ref);
 
-        if (ret == RP_VAL_TARGETRET_OK)
-            sprintf(out_buf, "QC%"PRIu64"x", ref.val);
-        else
-            rp_write_retval(ret, out_buf);
-        break;
-    case 'L':
-        /* Thread list query */
-        ret = rp_decode_list_query(&in_buf[2],
-                                   &first,
-                                   &max_found,
-                                   &arg);
-        if (!ret  ||  max_found > 255)
-        {
-            rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
+            if (ret == RP_VAL_TARGETRET_OK)
+                sprintf(out_buf, "QC%"PRIu64"x", ref.val);
+            else
+                rp_write_retval(ret, out_buf);
             break;
-        }
+        case 'L':
+            /* Thread list query */
+            ret = rp_decode_list_query(&in_buf[2],
+                    &first,
+                    &max_found,
+                    &arg);
+            if (!ret  ||  max_found > 255)
+            {
+                rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
+                break;
+            }
 
-        if ((found = malloc(max_found*sizeof(rp_thread_ref))) == NULL)
-        {
-            rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
-            break;
-        }
+            if ((found = malloc(max_found*sizeof(rp_thread_ref))) == NULL)
+            {
+                rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
+                break;
+            }
 
-        ret = t->list_query(first,
-                            &arg,
-                            found,
-                            max_found,
-                            &count,
-                            &done);
-        if (ret != RP_VAL_TARGETRET_OK  ||  count > max_found)
-        {
+            ret = t->list_query(first,
+                    &arg,
+                    found,
+                    max_found,
+                    &count,
+                    &done);
+            if (ret != RP_VAL_TARGETRET_OK  ||  count > max_found)
+            {
+                free(found);
+                rp_write_retval(ret, out_buf);
+                break;
+            }
+
+            ret = rp_encode_list_query_response(count,
+                    done,
+                    &arg,
+                    found,
+                    out_buf,
+                    out_buf_len);
+
             free(found);
-            rp_write_retval(ret, out_buf);
+
+            if (!ret)
+                rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
             break;
-        }
+        case 'P':
+            /* Thread info query */
+            if (!(ret = rp_decode_process_query(&in_buf[2], &mask, &ref)))
+            {
+                rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
+                break;
+            }
 
-        ret = rp_encode_list_query_response(count,
-                                            done,
-                                            &arg,
-                                            found,
-                                            out_buf,
-                                            out_buf_len);
+            info.thread_id.val = 0;
+            info.display[0] = 0;
+            info.thread_name[0] = 0;
+            info.more_display[0] = 0;
 
-        free(found);
+            if ((ret = t->process_query(&mask, &ref, &info)) != RP_VAL_TARGETRET_OK)
+            {
+                rp_write_retval(ret, out_buf);
+                break;
+            }
 
-        if (!ret)
-            rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
-        break;
-    case 'P':
-        /* Thread info query */
-        if (!(ret = rp_decode_process_query(&in_buf[2], &mask, &ref)))
-        {
-            rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
+            ret = rp_encode_process_query_response(mask,
+                    &ref,
+                    &info,
+                    out_buf,
+                    out_buf_len);
+            if (!ret)
+                rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
             break;
-        }
-
-        info.thread_id.val = 0;
-        info.display[0] = 0;
-        info.thread_name[0] = 0;
-        info.more_display[0] = 0;
-
-        if ((ret = t->process_query(&mask, &ref, &info)) != RP_VAL_TARGETRET_OK)
-        {
-            rp_write_retval(ret, out_buf);
+        default:
+            /* Raw Query is a universal fallback */
+            ret = t->raw_query(in_buf, out_buf, out_buf_len);
+            if (ret != RP_VAL_TARGETRET_OK)
+                rp_write_retval(ret, out_buf);
             break;
-        }
-
-        ret = rp_encode_process_query_response(mask,
-                                               &ref,
-                                               &info,
-                                               out_buf,
-                                               out_buf_len);
-        if (!ret)
-            rp_write_retval(RP_VAL_TARGETRET_ERR, out_buf);
-        break;
-    default:
-        /* Raw Query is a universal fallback */
-        ret = t->raw_query(in_buf, out_buf, out_buf_len);
-        if (ret != RP_VAL_TARGETRET_OK)
-            rp_write_retval(ret, out_buf);
-        break;
     }
 }
-        
+
 static void handle_breakpoint_command(char * const in_buf,
-                                      int in_len,
-                                      char *out_buf,
-                                      int out_buf_len,
-                                      rp_target *t)
+        int in_len,
+        char *out_buf,
+        int out_buf_len,
+        rp_target *t)
 {
     uint64_t addr;
     unsigned int len;
@@ -1236,22 +1239,353 @@ static void handle_breakpoint_command(char * const in_buf,
     rp_write_retval(ret, out_buf);
 }
 
+
+
+
+static int target_thread_run(rp_target* t)
+{
+
+    // variables
+    int input_error;
+    int ret;
+    int do_reinitialize;
+    int do_connect;
+    int more;
+    int implemented;
+    size_t in_len;
+
+
+    /* Various buffers used by the system */
+    static char in_buf[RP_PARAM_INOUTBUF_SIZE];
+    static char out_buf[RP_PARAM_INOUTBUF_SIZE];
+    static char status_string[RP_PARAM_INOUTBUF_SIZE];
+
+    input_error = FALSE;
+    do_reinitialize = TRUE;
+    do_connect = TRUE;
+    status_string[0] = '\0';
+   
+
+    // 
+    t->rp_target_running = FALSE;
+    t->rp_target_out_valid = FALSE;
+
+    // the main loop, receive from and sent to gdb front-end
+    for (;;)
+    {
+        if (input_error)
+        {
+            input_error = FALSE;
+            /* We come here when an input error is discovered */
+            rp_log(RP_VAL_LOGLEVEL_INFO,
+                    "%s: debugger has terminated connection",
+                    name);
+
+            // t->close();
+            dbg_sock_close(&(t->dbg_sock));
+
+            /* Close connection and start again */
+            rp_log(RP_VAL_LOGLEVEL_INFO, "%s: will reopen the connection", name);
+            do_reinitialize = TRUE;
+        }
+
+        // Connect to the gdb front-end
+        if (do_reinitialize)
+        {
+            do_reinitialize = FALSE;
+
+            /* Initialize target */
+            extended_protocol = FALSE;
+
+            if (!(ret = dbg_sock_accept(&(t->dbg_sock), &(t->dbg_listen_sock))))
+            {
+                rp_log(RP_VAL_LOGLEVEL_ERR,
+                        "%s: error while waiting for debugger connection. Will restart.",
+                        name);
+                dbg_sock_close(&(t->dbg_sock));
+                do_reinitialize = TRUE;
+            }
+            else
+            {
+                rp_log(RP_VAL_LOGLEVEL_NOTICE, "%s: connected", name);
+                do_connect = TRUE;
+            }
+        }
+
+        // Connect to the gdb front-end, cont... 
+        if (do_connect)
+        {
+            do_connect = FALSE;
+            ret = t->connect(status_string, sizeof(status_string), &can_restart);
+            if (ret != RP_VAL_TARGETRET_OK)
+            {
+                dbg_sock_close(&(t->dbg_sock));
+                rp_log(RP_VAL_LOGLEVEL_ERR,
+                        "%s: unable to connect to target %s. Will restart.",
+                        name,
+                        t->name);
+                do_reinitialize = TRUE;
+                continue;
+            }
+        }
+
+        // check if the target is already running
+        if (t->rp_target_running)
+            ret = rp_getpkt(t, in_buf, sizeof(in_buf), &in_len, 100);
+        else
+            ret = rp_getpkt(t, in_buf, sizeof(in_buf), &in_len, -1);
+        if (ret == -1)
+        {
+            /* Debugger closed connection, or connection is bad */
+            input_error = TRUE;
+            continue;
+        }
+
+        // STOP
+        if (ret == '\3')
+        {
+            /* We got a control-C. */
+            /* Only when the target has responded to the following stop command,
+               will GDB receive a response. */
+            if (t->rp_target_running)
+                t->stop();
+            continue;
+        }
+
+        // 
+        if (ret == 1)
+        {
+            /* Timeout: if the target is running, check for input from it */
+            if (t->rp_target_running)
+            {
+                ret = t->wait_partial(FALSE,
+                        status_string,
+                        sizeof(status_string),
+                        rp_console_output,
+                        &implemented,
+                        &more,
+                        t);
+                assert(implemented);
+
+                if (ret != RP_VAL_TARGETRET_OK  ||  !more)
+                {
+                    t->rp_target_running = FALSE;
+                    if (ret == RP_VAL_TARGETRET_OK)
+                    {
+                        assert(strlen(status_string) < sizeof(status_string));
+                        strcpy(out_buf, status_string);
+                    }
+                    else
+                    {
+                        rp_write_retval(ret, out_buf);
+                    }
+                    t->rp_target_out_valid = FALSE;
+                    rp_putpkt(t, out_buf);
+                }
+            }
+            continue;
+        }
+
+        if (ret != 0)
+        {
+            /* We got an ACK or something else that is not a packet. */
+            continue;
+        }
+
+        assert(in_len == strlen(in_buf));
+
+        /* If we cannot process this command, it is not supported */
+        //jie Why do we need this here?
+        rp_write_retval(RP_VAL_TARGETRET_NOSUPP, out_buf);
+        t->rp_target_out_valid = FALSE;
+
+
+        /* the main switch for different packet from gdb front-end */
+        // here the packets are processed based their type, therefore
+        // an additional layer handle_**** is implemented.
+        //
+        switch (in_buf[0])
+        {
+            case '!':
+                /* Set extended operation */
+                rp_log(RP_VAL_LOGLEVEL_DEBUG,
+                        "%s: switching to extended protocol mode\n",
+                        name);
+                if (can_restart)
+                {
+                    extended_protocol = TRUE;
+                    rp_write_retval(RP_VAL_TARGETRET_OK, out_buf);
+                }
+                else
+                {
+                    /* Some GDBs will accept any response as a good one. Let us
+                       bark in the log at least */
+                    rp_log(RP_VAL_LOGLEVEL_ERR,
+                            "%s: extended operations required, but not supported",
+                            name);
+                }
+                break;
+            case '?':
+                /* Report the last signal status */
+                strcpy(out_buf, status_string);
+                break;
+            case 'A':
+                /* Set the argv[] array of the target */
+                //TODO: implement this!
+                // This could be useful, so that gdb front-end could set
+                // the device itself, instead of only one device is supported 
+                // within one session.
+                break;
+            case 'C':
+            case 'S':
+            case 'W':
+            case 'c':
+            case 's':
+            case 'w':
+                handle_running_commands(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        status_string,
+                        sizeof(status_string),
+                        t);
+                if (t->rp_target_running)
+                    continue;
+                break;
+            case 'D':
+                handle_detach_command(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        t);
+                do_reinitialize = TRUE;
+                continue;
+            case 'g':
+                handle_read_registers_command(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        t);
+                break;
+            case 'G':
+                handle_write_registers_command(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        t);
+                break;
+            case 'H':
+                handle_thread_commands(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        t);
+                break;
+            case 'k':
+                do_connect = handle_kill_command(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        t);
+                if (do_connect == -1)
+                    input_error = TRUE;
+                if (!do_connect)
+                    do_reinitialize = TRUE;
+                continue;
+            case 'm':
+                handle_read_memory_command(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        t);
+                break;
+            case 'M':
+                handle_write_memory_command(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        t);
+                break;
+            case 'p':
+                handle_read_single_register_command(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        t);
+                break;
+            case 'P':
+                handle_write_single_register_command(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        t);
+                break;
+            case 'q':
+                handle_query_command(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        t);
+                break;
+            case 'R':
+                do_connect = handle_restart_target_command(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        t);
+                if (do_connect == -1)
+                    do_reinitialize = TRUE;
+                if (do_connect)
+                    continue;
+                break;
+            case 't':
+                handle_search_memory_command(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        t);
+                break;
+            case 'T':
+                handle_thread_alive_command(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        t);
+                break;
+            case 'Z':
+            case 'z':
+                handle_breakpoint_command(in_buf,
+                        in_len,
+                        out_buf,
+                        sizeof(out_buf),
+                        t);
+                break;
+            default:
+                break;
+        }
+
+        if (!input_error)
+            rp_putpkt(t, out_buf);
+    }
+
+}
+
+
+
+
 int main (int argc, char **argv)
 {
     rp_target *t;
     int ret;
-    unsigned int port;
+    int port;
     int doing_help;
     int t_argc;
     char **t_argv;
-    int sav_optind;
-    int do_reinitialize;
-    int do_connect;
-    int input_error;
-    int more;
-    int implemented;
-    size_t in_len;
     int quiet;
+
+    // threading
+    pthread_t thread;
+    void* rval;
 
     /* Option descriptors */
     static struct option long_options[] =
@@ -1269,10 +1603,6 @@ int main (int argc, char **argv)
         {NULL,  0, 0, 0}
     };
 
-    /* Various buffers used by the system */
-    static char in_buf[RP_PARAM_INOUTBUF_SIZE];
-    static char out_buf[RP_PARAM_INOUTBUF_SIZE];
-    static char status_string[RP_PARAM_INOUTBUF_SIZE];
 
 #ifdef WIN32
 #define PATHSEP '\\'
@@ -1293,70 +1623,67 @@ int main (int argc, char **argv)
 
     /* Initialize everything */
     rp_t_list = rp_init();
-    dbg_sock_init();
     port = 0;
     quiet = 0;
     doing_help   = FALSE;
     doing_daemon = FALSE;
     rp_debug_level = 0;
-    sav_optind   = optind;
 
     /* Process options */
     for (;;)
     {
         int c;
-        int option_index;
 
-        c = getopt_long_only(argc, argv, "+", long_options, &option_index);
+        c = getopt_long_only(argc, argv, "+", long_options, &optionIndex);
 
         if (c == EOF)
             break;
 
         switch (c)
         {
-        case 1:
-            /* help */
-            doing_help = TRUE;
-            break;
+            case 1:
+                /* help */
+                doing_help = TRUE;
+                break;
 #ifndef WIN32
-        case 2:
-            /* daemon */
-            doing_daemon = TRUE;
-            break;
+            case 2:
+                /* daemon */
+                doing_daemon = TRUE;
+                break;
 #endif /* WIN32 */
-        case 3:
-            /* debug */
-            rp_debug_level++;
-            break;
-        case 4:
-            /* port */
-            port = atoi(optarg);
-            if (port == 0  ||  port > 0xFFFF)
-            {
-                printf("%s: bad port %s\n", name, optarg);
-                exit(1);
-            }
-            break;
-        case 5:
-            /* warranty */
-            rp_show_warranty();
-            return 0;
-        case 6:
-            /* copying */
-            rp_show_copying();
-            return 0;
-        case 7:
-            /* version */
-            printf("Remote proxy for GDB, version %s\n\n", VERSION);
-            return 0;
-        case 8:
-            /* quiet */
-            ++quiet;
-            break;
-        default:
-            printf("Use `%s --help' to see a complete list of options\n",
-                   argv[0]);
-            return 1;
+            case 3:
+                /* debug */
+                rp_debug_level++;
+                break;
+            case 4:
+                /* port */
+                port = atoi(optarg);
+                if (port == 0  ||  port > 0xFFFF)
+                {
+                    printf("%s: bad port %s\n", name, optarg);
+                    exit(1);
+                }
+                break;
+            case 5:
+                /* warranty */
+                rp_show_warranty();
+                return 0;
+            case 6:
+                /* copying */
+                rp_show_copying();
+                return 0;
+            case 7:
+                /* version */
+                printf("Remote proxy for GDB, version %s\n\n", VERSION);
+                return 0;
+            case 8:
+                /* quiet */
+                ++quiet;
+                break;
+            default:
+                printf("Use `%s --help' to see a complete list of options\n",
+                        argv[0]);
+                return 1;
         }
     }
 
@@ -1369,97 +1696,98 @@ int main (int argc, char **argv)
     if (!quiet)
     {
         printf("\nRemote proxy for GDB, v%s, Copyright (C) 1999 Quality Quorum Inc.\n",
-               VERSION);
+                VERSION);
         printf("MSP430 adaption Copyright (C) 2002 Chris Liechti and Steve Underwood\n");
-        printf("Blackfin adaption Copyright (C) 2008-2010 Analog Devices, Inc.\n\n");
+        printf("Blackfin adaption Copyright (C) 2008-2010 Analog Devices, Inc.\n");
+        printf("Atmel simulator adaption Copyright (C) 2016 Atmel, Inc.\n\n");
         printf("GDBproxy comes with ABSOLUTELY NO WARRANTY; for details\n");
         printf("use `--warranty' option. This is Open Source software. You are\n");
         printf("welcome to redistribute it under certain conditions. Use the\n");
         printf("'--copying' option for details.\n\n");
     }
 
-    /* Find the target */
-    for (t = rp_t_list;  t;  t = t->next)
-    {
-        assert(t->name != NULL);
-        if (strcmp(t->name, argv[optind]) == 0)
-            break;
-    }
-    if (t == NULL)
-    {
-        printf("Target %s not present,\n", argv[optind]);
-        printf("use '%s --help' to see a complete list of targets\n", name);
-        exit(1);
-    }
 
-    assert(t->help != NULL);
-    assert(t->open != NULL);
-    assert(t->close != NULL);
-    assert(t->connect != NULL);
-    assert(t->disconnect != NULL);
-    assert(t->kill != NULL);
-    assert(t->restart != NULL);
-    assert(t->stop != NULL);
-    assert(t->set_gen_thread != NULL);
-    assert(t->set_ctrl_thread != NULL);
-    assert(t->is_thread_alive != NULL);
-    assert(t->read_registers != NULL);
-    assert(t->write_registers != NULL);
-    assert(t->write_single_register != NULL);
-    assert(t->read_mem != NULL);
-    assert(t->write_mem != NULL);
-    assert(t->resume_from_addr != NULL);
-    assert(t->resume_from_current != NULL);
-    assert(t->go_waiting != NULL);
-    assert(t->wait_partial != NULL);
-    assert(t->wait != NULL);
-    assert(t->process_query != NULL);
-    assert(t->list_query != NULL);
-    assert(t->current_thread_query != NULL);
-    assert(t->offsets_query != NULL);
-    assert(t->raw_query != NULL);
-    assert(t->add_break != NULL);
-    assert(t->remove_break != NULL);
+    t_argc = argc - optind; 
+    t_argv = argv;
 
-    if (doing_help)
+    // loops until all the options are processed
+    while (t_argc > 0)
     {
+        /* Save target argc and argv. We have to do this because optind may
+           be reset in t->open */
+        t_argv = t_argv + optind;
+
+        printf("t_argv --> %s\n", *t_argv);
+
+
+        /* Find the target */
+        for (t = rp_t_list;  t;  t = t->next)
+        {
+            assert(t->name != NULL);
+            if (strcmp(t->name, t_argv[0]) == 0)
+                break;
+        }
+        if (t == NULL)
+        {
+            printf("Target %s not present,\n", argv[optind]);
+            printf("use '%s --help' to see a complete list of targets\n", name);
+            exit(1);
+        }
+
+
+        dbg_sock_init(&(t->dbg_listen_sock));
+        /* Ensure the target is valid */
         assert(t->help != NULL);
-        t->help(name);
-        exit(0);
-    }
+        assert(t->open != NULL);
+        assert(t->close != NULL);
+        assert(t->connect != NULL);
+        assert(t->disconnect != NULL);
+        assert(t->kill != NULL);
+        assert(t->restart != NULL);
+        assert(t->stop != NULL);
+        assert(t->set_gen_thread != NULL);
+        assert(t->set_ctrl_thread != NULL);
+        assert(t->is_thread_alive != NULL);
+        assert(t->read_registers != NULL);
+        assert(t->write_registers != NULL);
+        assert(t->write_single_register != NULL);
+        assert(t->read_mem != NULL);
+        assert(t->write_mem != NULL);
+        assert(t->resume_from_addr != NULL);
+        assert(t->resume_from_current != NULL);
+        assert(t->go_waiting != NULL);
+        assert(t->wait_partial != NULL);
+        assert(t->wait != NULL);
+        assert(t->process_query != NULL);
+        assert(t->list_query != NULL);
+        assert(t->current_thread_query != NULL);
+        assert(t->offsets_query != NULL);
+        assert(t->raw_query != NULL);
+        assert(t->add_break != NULL);
+        assert(t->remove_break != NULL);
 
-    /* Save target argc and argv. We have to do this because optind may
-       be reset in t->open */
-    t_argc = argc - optind;
-    t_argv = argv + optind;
+        if (doing_help)
+        {
+            assert(t->help != NULL);
+            t->help(name);
+            exit(0);
+        }
 
-    if ((rp_log = rp_env_init(name, doing_daemon)) == NULL)
-    {
-        printf("%s: fatal: unable to initialize environment\n", name);
-        exit(1);
-    }
+                if ((rp_log = rp_env_init(name, doing_daemon)) == NULL)
+        {
+            printf("%s: fatal: unable to initialize environment\n", name);
+            exit(1);
+        }
 
-    do_reinitialize = TRUE;
-    do_connect = TRUE;
-    can_restart = FALSE;
-    input_error = FALSE;
-    status_string[0] = '\0';
+        can_restart = TRUE;
 
-            //TODO: Looping like this is rather nasty, as we do not give
-            //      meaningful responses if GDB connects. This needs improvement.
-            do
-            {
-                ret = t->open(t_argc, t_argv, name, rp_log);
-                if (ret == RP_VAL_TARGETRET_ERR)
-#ifdef WIN32
-                    Sleep(5000);
-#else
-                    usleep(5000000);
-#endif
-            }
-            while (ret == RP_VAL_TARGETRET_ERR);
-            switch (ret)
-            {
+        // Connect to the target
+        ret = t->open(t_argc, t_argv, name, rp_log);
+        t_argc = t_argc - optind;
+
+        // process based on the connect result
+        switch (ret)
+        {
             case RP_VAL_TARGETRET_OK:
                 break;
             case RP_VAL_TARGETRET_NOSUPP:
@@ -1467,314 +1795,59 @@ int main (int argc, char **argv)
                 exit(0);
             case RP_VAL_TARGETRET_ERR:
                 rp_log(RP_VAL_LOGLEVEL_ERR,
-                       "%s: unable to open target %s",
-                       name,
-                       t->name);
+                        "%s: unable to open target %s",
+                        name,
+                        t->name);
                 exit(1);
             default:
                 assert(0);
                 exit(1);
-            }
-
-                if (!(ret = dbg_listen_sock_open(&port)))
-                {
-                    rp_log(RP_VAL_LOGLEVEL_ERR,
-                           "%s: unable to open debugger connection.",
-                           name);
-		    exit(1);
-                }
-		else
-                rp_log(RP_VAL_LOGLEVEL_NOTICE,
-                       "%s: waiting on TCP port %d",
-                       name,
-                       port);
-
-    for (;;)
-    {
-        if (input_error)
-        {
-            input_error = FALSE;
-            /* We come here when an input error is discovered */
-            rp_log(RP_VAL_LOGLEVEL_INFO,
-                   "%s: debugger has terminated connection",
-                   name);
-        
-            // t->close();
-            dbg_sock_close();
-
-            /* Close connection and start again */
-            rp_log(RP_VAL_LOGLEVEL_INFO, "%s: will reopen the connection", name);
-            do_reinitialize = TRUE;
         }
 
-        if (do_reinitialize)
+        // setup the socket
+        if (port != 0) port += 1;  // increase port number
+        if (!(ret = dbg_listen_sock_open(&(t->dbg_sock), &(t->dbg_listen_sock), &port)))
         {
-            do_reinitialize = FALSE;
-            /* Initialize target */
-            optind = sav_optind; /* Reset arg counting */
-        
-            extended_protocol = FALSE;
-
-	    if (!(ret = dbg_sock_accept()))
-	    {
-		rp_log(RP_VAL_LOGLEVEL_ERR,
-		       "%s: error while waiting for debugger connection. Will restart.",
-		       name);
-		dbg_sock_close();
-		do_reinitialize = TRUE;
-	    }
-	    else
-	    {
-		rp_log(RP_VAL_LOGLEVEL_NOTICE,
-		       "%s: connected",
-		       name);
-
-		do_connect = TRUE;
-	    }
+            rp_log(RP_VAL_LOGLEVEL_ERR,
+                    "%s: unable to open debugger connection.",
+                    name);
+            exit(1);
         }
-
-        if (do_connect)
-        {
-            do_connect = FALSE;
-            ret = t->connect(status_string, sizeof(status_string), &can_restart);
-            if (ret != RP_VAL_TARGETRET_OK)
-            {
-                dbg_sock_close();
-                rp_log(RP_VAL_LOGLEVEL_ERR,
-                       "%s: unable to connect to target %s. Will restart.",
-                       name,
-                       t->name);
-                do_reinitialize = TRUE;
-                continue;
-            }
-        }
-        if (rp_target_running)
-            ret = rp_getpkt(in_buf, sizeof(in_buf), &in_len, 100);
         else
-            ret = rp_getpkt(in_buf, sizeof(in_buf), &in_len, -1);
-        if (ret == -1)
-        {
-            /* Debugger closed connection, or connection is bad */
-            input_error = TRUE;
-            continue;
-        }
-        if (ret == '\3')
-        {
-            /* We got a control-C. */
-            /* Only when the target has responded to the following stop command,
-               will GDB receive a response. */
-            if (rp_target_running)
-                t->stop();
-            continue;
-        }
-        if (ret == 1)
-        {
-            /* Timeout: if the target is running, check for input from it */
-            if (rp_target_running)
-            {
-                ret = t->wait_partial(FALSE,
-		    		      status_string,
-                                      sizeof(status_string),
-                                      rp_console_output,
-			              &implemented,
-                                      &more);
-                assert(implemented);
+            rp_log(RP_VAL_LOGLEVEL_NOTICE,
+                    "%s: waiting on TCP port %d",
+                    name,
+                    port);
 
-                if (ret != RP_VAL_TARGETRET_OK  ||  !more)
-                {
-                    rp_target_running = FALSE;
-                    if (ret == RP_VAL_TARGETRET_OK)
-                    {
-                        assert(strlen(status_string) < sizeof(status_string));
-                        strcpy(out_buf, status_string);
-                    }
-                    else
-                    {
-                        rp_write_retval(ret, out_buf);
-                    }
-                    rp_target_out_valid = FALSE;
-                    rp_putpkt(out_buf);
-                }
-            }
-            continue;
-        }
-        if (ret != 0)
+        // create thread for each target
+        if ((ret = pthread_create(&thread, NULL, target_thread_run, (void*)t)))
         {
-            /* We got an ACK or something else that is not a packet. */
-            continue;
+            rp_log(RP_VAL_LOGLEVEL_ERR,
+                    "%s: unable to start thread for target.",
+                    "ARM");
+            exit(1);
+
         }
-
-        assert(in_len == strlen(in_buf));
-
-        /* If we cannot process this command, it is not supported */
-        rp_write_retval(RP_VAL_TARGETRET_NOSUPP, out_buf);
-        rp_target_out_valid = FALSE;
-
-        switch (in_buf[0])
-        {
-        case '!':
-            /* Set extended operation */
-            rp_log(RP_VAL_LOGLEVEL_DEBUG,
-                   "%s: switching to extended protocol mode\n",
-                   name);
-            if (can_restart)
-            {
-                extended_protocol = TRUE;
-                rp_write_retval(RP_VAL_TARGETRET_OK, out_buf);
-            }
-            else
-            {
-                /* Some GDBs will accept any response as a good one. Let us
-                   bark in the log at least */
-                rp_log(RP_VAL_LOGLEVEL_ERR,
-                       "%s: extended operations required, but not supported",
-                       name);
-            }
-            break;
-        case '?':
-            /* Report the last signal status */
-            strcpy(out_buf, status_string);
-            break;
-        case 'A':
-            /* Set the argv[] array of the target */
-            //TODO: implement this!
-            break;
-        case 'C':
-        case 'S':
-        case 'W':
-        case 'c':
-        case 's':
-        case 'w':
-            handle_running_commands(in_buf,
-                                    in_len,
-                                    out_buf,
-                                    sizeof(out_buf),
-                                    status_string,
-                                    sizeof(status_string),
-                                    t);
-            if (rp_target_running)
-                continue;
-            break;
-        case 'D':
-            handle_detach_command(in_buf,
-                                  in_len,
-                                  out_buf,
-                                  sizeof(out_buf),
-                                  t);
-            do_reinitialize = TRUE;
-            continue;
-        case 'g':
-            handle_read_registers_command(in_buf,
-                                          in_len,
-                                          out_buf,
-                                          sizeof(out_buf),
-                                          t);
-            break;
-        case 'G':
-            handle_write_registers_command(in_buf,
-                                           in_len,
-                                           out_buf,
-                                           sizeof(out_buf),
-                                           t);
-            break;
-        case 'H':
-            handle_thread_commands(in_buf,
-                                   in_len,
-                                   out_buf,
-                                   sizeof(out_buf),
-                                   t);
-            break;
-        case 'k':
-            do_connect = handle_kill_command(in_buf,
-                                             in_len,
-                                             out_buf,
-                                             sizeof(out_buf),
-                                             t);
-            if (do_connect == -1)
-                input_error = TRUE;
-            if (!do_connect)
-                do_reinitialize = TRUE;
-            continue;
-        case 'm':
-            handle_read_memory_command(in_buf,
-                                       in_len,
-                                       out_buf,
-                                       sizeof(out_buf),
-                                       t);
-            break;
-        case 'M':
-            handle_write_memory_command(in_buf,
-                                        in_len,
-                                        out_buf,
-                                        sizeof(out_buf),
-                                        t);
-            break;
-        case 'p':
-            handle_read_single_register_command(in_buf,
-                                                in_len,
-                                                out_buf,
-                                                sizeof(out_buf),
-                                                t);
-            break;
-        case 'P':
-            handle_write_single_register_command(in_buf,
-                                                 in_len,
-                                                 out_buf,
-                                                 sizeof(out_buf),
-                                                 t);
-            break;
-        case 'q':
-            handle_query_command(in_buf,
-                                 in_len,
-                                 out_buf,
-                                 sizeof(out_buf),
-                                 t);
-            break;
-        case 'R':
-            do_connect = handle_restart_target_command(in_buf,
-                                                       in_len,
-                                                       out_buf,
-                                                       sizeof(out_buf),
-                                                       t);
-            if (do_connect == -1)
-                do_reinitialize = TRUE;
-            if (do_connect)
-                continue;
-            break;
-        case 't':
-            handle_search_memory_command(in_buf,
-                                         in_len,
-                                         out_buf,
-                                         sizeof(out_buf),
-                                         t);
-            break;
-        case 'T':
-            handle_thread_alive_command(in_buf,
-                                        in_len,
-                                        out_buf,
-                                        sizeof(out_buf),
-                                        t);
-            break;
-        case 'Z':
-        case 'z':
-            handle_breakpoint_command(in_buf,
-                                      in_len,
-                                      out_buf,
-                                      sizeof(out_buf),
-                                      t);
-            break;
-        default:
-            break;
-        }
-
-        if (!input_error)
-            rp_putpkt(out_buf);
     }
+
+    if ((ret = pthread_join(thread, &rval)))
+    {
+        rp_log(RP_VAL_LOGLEVEL_ERR,
+                "%s: unable to join thread for target.",
+                "ARM");
+        exit(1);
+
+    }
+
     return 0;
 }
 
+
+
+
+
 /* Send packet to debugger */
-static int rp_putpkt(const char *buf)
+static int rp_putpkt(rp_target* t, const char *buf)
 {
     int i;
     int ret;
@@ -1816,7 +1889,7 @@ static int rp_putpkt(const char *buf)
 
     /* Bodge alert: flush any packets in the incoming buffer */
     do
-        ret = rp_getpkt(in_buf, sizeof(in_buf), &dummy_len, 0);
+        ret = rp_getpkt(t, in_buf, sizeof(in_buf), &dummy_len, 0);
     while (ret != 1 && ret != -1);
 
     if (ret == -1)
@@ -1825,12 +1898,12 @@ static int rp_putpkt(const char *buf)
     for (;;)
     {
         rp_log(RP_VAL_LOGLEVEL_DEBUG2,
-               "%s: sending packet: %d bytes: %s...",
-               name,
-               len,
-	       buf2);
+                "%s: sending packet: %d bytes: %s...",
+                name,
+                len,
+                buf2);
 
-        if ((ret = dbg_sock_write(buf2, len)) == 0)
+        if ((ret = dbg_sock_write(&(t->dbg_sock), &(t->dbg_listen_sock), buf2, len)) == 0)
         {
             /* Something went wrong */
             rp_log(RP_VAL_LOGLEVEL_DEBUG, "%s: write failed", name);
@@ -1838,7 +1911,7 @@ static int rp_putpkt(const char *buf)
         }
 
         /* Now look for an ACK from GDB */
-        if ((ret = rp_getpkt(in_buf, sizeof(in_buf), &dummy_len, -1)) == -1)
+        if ((ret = rp_getpkt(t, in_buf, sizeof(in_buf), &dummy_len, -1)) == -1)
         {
             rp_log(RP_VAL_LOGLEVEL_DEBUG, "%s: read of ACK failed", name);
             return  FALSE;
@@ -1855,7 +1928,7 @@ static int rp_putpkt(const char *buf)
 
 /* Read a packet from the remote machine, with error checking,
    and store it in buf. */
-static int rp_getpkt(char *buf, size_t buf_len, size_t *len, int timeout)
+static int rp_getpkt(rp_target* t, char *buf, size_t buf_len, size_t *len, int timeout)
 {
     char seq[2];
     char seq_valid;
@@ -1883,9 +1956,9 @@ static int rp_getpkt(char *buf, size_t buf_len, size_t *len, int timeout)
     for (;;)
     {
         if (state == 0)
-            c = dbg_sock_readchar(timeout);
+            c = dbg_sock_readchar(&(t->dbg_sock), &(t->dbg_listen_sock), timeout);
         else
-            c = dbg_sock_readchar(-1);
+            c = dbg_sock_readchar(&(t->dbg_sock), &(t->dbg_listen_sock), -1);
         if (c == RP_VAL_MISCREADCHARRET_ERR)
         {
             rp_log(RP_VAL_LOGLEVEL_DEBUG, "%s: error while reading from GDB", name);
@@ -1912,222 +1985,222 @@ static int rp_getpkt(char *buf, size_t buf_len, size_t *len, int timeout)
 
         switch (state)
         {
-        case 0:
-            /* Waiting for a start of packet marker */
-            if (c == '$')
-            {
-                /* Start of packet */
-                seq[0] = 0;
-                seq[1] = 0;
-                seq_valid = FALSE;
-                rx_csum = 0;
-                calc_csum = 0;
-                pkt_len = 0;
-                state = 1;
-            }
-            else if (c == '\3')
-            {
-                /* A control C */
-                rp_log(RP_VAL_LOGLEVEL_DEBUG, "%s: Control-C received", name);
-                return  '\3';
-            }
-            else if (c == '+')
-            {
-                /* An ACK to one of our packets */
-                /* We don't use sequence numbers, so we shouldn't expect a
-                   sequence number after this character. */
-                rp_log(RP_VAL_LOGLEVEL_DEBUG2, "%s: ACK received", name);
-                return  ACK;
-            }
-            else if (c == '-')
-            {
-                /* A NAK to one of our packets */
-                /* We don't use sequence numbers, so we shouldn't expect a
-                   sequence number after this character. */
-                rp_log(RP_VAL_LOGLEVEL_DEBUG2, "%s: NAK received", name);
-                return  NAK;
-            }
-            else
-            {
-                rp_log(RP_VAL_LOGLEVEL_DEBUG, "%s: we got junk - 0x%X", name, c & 0xFF);
-            }
-            break;
-        case 1:
-        case 2:
-            /* We might be in the two character sequence number
-               preceeding a ':'. Then again, we might not! */
-            if (c == '#')
-            {
-                state = 8;
+            case 0:
+                /* Waiting for a start of packet marker */
+                if (c == '$')
+                {
+                    /* Start of packet */
+                    seq[0] = 0;
+                    seq[1] = 0;
+                    seq_valid = FALSE;
+                    rx_csum = 0;
+                    calc_csum = 0;
+                    pkt_len = 0;
+                    state = 1;
+                }
+                else if (c == '\3')
+                {
+                    /* A control C */
+                    rp_log(RP_VAL_LOGLEVEL_DEBUG, "%s: Control-C received", name);
+                    return  '\3';
+                }
+                else if (c == '+')
+                {
+                    /* An ACK to one of our packets */
+                    /* We don't use sequence numbers, so we shouldn't expect a
+                       sequence number after this character. */
+                    rp_log(RP_VAL_LOGLEVEL_DEBUG2, "%s: ACK received", name);
+                    return  ACK;
+                }
+                else if (c == '-')
+                {
+                    /* A NAK to one of our packets */
+                    /* We don't use sequence numbers, so we shouldn't expect a
+                       sequence number after this character. */
+                    rp_log(RP_VAL_LOGLEVEL_DEBUG2, "%s: NAK received", name);
+                    return  NAK;
+                }
+                else
+                {
+                    rp_log(RP_VAL_LOGLEVEL_DEBUG, "%s: we got junk - 0x%X", name, c & 0xFF);
+                }
                 break;
-            }
-            buf[pkt_len++] = c;
-            rx_csum += c;
-            state++;
-            break;
-        case 3:
-            if (c == '#')
-            {
-                state = 8;
-                break;
-            }
-            if (c == ':')
-            {
-                /* A ':' at this position means the previous 2
-                   characters form a sequence number for the
-                   packet. This must be saved, and used when
-                   ack'ing the packet */
-                seq[0] = buf[0];
-                seq[1] = buf[1];
-                seq_valid = TRUE;
-                pkt_len = 0;
-            }
-            else
-            {
+            case 1:
+            case 2:
+                /* We might be in the two character sequence number
+                   preceeding a ':'. Then again, we might not! */
+                if (c == '#')
+                {
+                    state = 8;
+                    break;
+                }
                 buf[pkt_len++] = c;
                 rx_csum += c;
-            }
-            state = 4;
-            break;
-        case 4:
-            if (c == '#')
-            {
-                state = 8;
+                state++;
                 break;
-            }
-            buf[pkt_len++] = c;
-            rx_csum += c;
-            if (buf[0] == 'X')
-            {
-                /* Special case: binary data. Format X<addr>,<len>:<data>.
-                   Note: we have not reached the ':' yet. */
-                /* Translate this packet, so it looks like a non-binary
-                   format memory write command. */
-                buf[0] = 'M';
-                esc_found = FALSE;
-                buf_len--; /* We have to save extra space */
-                state = 6;
-            }
-            else
-            {
-                state = 5;
-            }
-            break;
-        case 5:
-            /* Normal, non-binary mode */
-            if (c == '#')
-            {
-                state = 8;
-                break;
-            }
-            if (pkt_len >= buf_len)
-            {
-                rp_log(RP_VAL_LOGLEVEL_DEBUG,
-                       "%s: received excessive length packet",
-                       name);
-                continue;
-            }
-            buf[pkt_len++] = c;
-            rx_csum += c;
-            break;
-        case 6:
-            /* Escaped binary data mode - pre ':' */
-            buf[pkt_len++] = c;
-            rx_csum += c;
-            if (c == ':')
-            {
-                /* From now on the packet will be in escaped binary. */
-                state = 7;
-                continue;
-            }
-            break;
-        case 7:
-            /* Escaped binary data mode - post ':' */
-            if (pkt_len >= buf_len)
-            {
-                rp_log(RP_VAL_LOGLEVEL_DEBUG,
-                       "%s: received a packet that is too long",
-                       name);
-                continue;
-            }
-            if (esc_found)
-            {
-                rx_csum += c;
-                esc_found = FALSE;
-                c ^= 0x20;
-                buf[pkt_len++] = hex[(c >> 4) & 0xf];
-                buf[pkt_len++] = hex[c & 0xf];
-                continue;
-            }
-
-            if (c == 0x7D)
-            {
-                rx_csum += c;
-                esc_found = TRUE;
-                continue;
-            }
-    
-            if (c == '#')
-            {
-                /* Unescaped '#' means end of packet */
-                state = 8;
-                break;
-            }
-    
-            rx_csum += c;
-            buf[pkt_len++] = hex[(c >> 4) & 0xf];
-            buf[pkt_len++] = hex[c & 0xf];
-            break;
-        case 8:
-            /* Now get the first byte of the two byte checksum */
-            if ((nib = rp_hex_nibble(c)) < 0)
-            {
-                rp_log(RP_VAL_LOGLEVEL_DEBUG,
-                       "%s: bad checksum character %c",
-                       name,
-                       c);
-                state = 0;
-                break;
-            }
-            calc_csum = (calc_csum << 4) | nib;
-            state = 9;
-            break;
-        case 9:
-            /* Now get the second byte of the checksum, and
-               check it. */
-            if ((nib = rp_hex_nibble(c)) < 0)
-            {
-                rp_log(RP_VAL_LOGLEVEL_DEBUG,
-                       "%s: bad checksum character %c",
-                       name,
-                       c);
-                state = 0;
-                break;
-            }
-            calc_csum = (calc_csum << 4) | nib;
-            if (rx_csum == calc_csum)
-            {
-                buf[pkt_len] = '\0';
-                *len = pkt_len;
-
-                /* Acknowledge this good packet */
-                dbg_sock_putchar('+');
-                if (seq_valid)
+            case 3:
+                if (c == '#')
                 {
-                    dbg_sock_putchar(seq[0]);
-                    dbg_sock_putchar(seq[1]);
+                    state = 8;
+                    break;
+                }
+                if (c == ':')
+                {
+                    /* A ':' at this position means the previous 2
+                       characters form a sequence number for the
+                       packet. This must be saved, and used when
+                       ack'ing the packet */
+                    seq[0] = buf[0];
+                    seq[1] = buf[1];
+                    seq_valid = TRUE;
+                    pkt_len = 0;
+                }
+                else
+                {
+                    buf[pkt_len++] = c;
+                    rx_csum += c;
+                }
+                state = 4;
+                break;
+            case 4:
+                if (c == '#')
+                {
+                    state = 8;
+                    break;
+                }
+                buf[pkt_len++] = c;
+                rx_csum += c;
+                if (buf[0] == 'X')
+                {
+                    /* Special case: binary data. Format X<addr>,<len>:<data>.
+Note: we have not reached the ':' yet. */
+                    /* Translate this packet, so it looks like a non-binary
+                       format memory write command. */
+                    buf[0] = 'M';
+                    esc_found = FALSE;
+                    buf_len--; /* We have to save extra space */
+                    state = 6;
+                }
+                else
+                {
+                    state = 5;
+                }
+                break;
+            case 5:
+                /* Normal, non-binary mode */
+                if (c == '#')
+                {
+                    state = 8;
+                    break;
+                }
+                if (pkt_len >= buf_len)
+                {
+                    rp_log(RP_VAL_LOGLEVEL_DEBUG,
+                            "%s: received excessive length packet",
+                            name);
+                    continue;
+                }
+                buf[pkt_len++] = c;
+                rx_csum += c;
+                break;
+            case 6:
+                /* Escaped binary data mode - pre ':' */
+                buf[pkt_len++] = c;
+                rx_csum += c;
+                if (c == ':')
+                {
+                    /* From now on the packet will be in escaped binary. */
+                    state = 7;
+                    continue;
+                }
+                break;
+            case 7:
+                /* Escaped binary data mode - post ':' */
+                if (pkt_len >= buf_len)
+                {
+                    rp_log(RP_VAL_LOGLEVEL_DEBUG,
+                            "%s: received a packet that is too long",
+                            name);
+                    continue;
+                }
+                if (esc_found)
+                {
+                    rx_csum += c;
+                    esc_found = FALSE;
+                    c ^= 0x20;
+                    buf[pkt_len++] = hex[(c >> 4) & 0xf];
+                    buf[pkt_len++] = hex[c & 0xf];
+                    continue;
                 }
 
-                rp_log(RP_VAL_LOGLEVEL_DEBUG2, "%s: packet received: %s", name, buf);
-                return  0;
-            }
-            rp_log(RP_VAL_LOGLEVEL_DEBUG,
-                   "%s: bad checksum calculated=0x%x received=0x%x",
-                   name,
-                   rx_csum,
-                   calc_csum);
-            state = 0;
-            continue;
+                if (c == 0x7D)
+                {
+                    rx_csum += c;
+                    esc_found = TRUE;
+                    continue;
+                }
+
+                if (c == '#')
+                {
+                    /* Unescaped '#' means end of packet */
+                    state = 8;
+                    break;
+                }
+
+                rx_csum += c;
+                buf[pkt_len++] = hex[(c >> 4) & 0xf];
+                buf[pkt_len++] = hex[c & 0xf];
+                break;
+            case 8:
+                /* Now get the first byte of the two byte checksum */
+                if ((nib = rp_hex_nibble(c)) < 0)
+                {
+                    rp_log(RP_VAL_LOGLEVEL_DEBUG,
+                            "%s: bad checksum character %c",
+                            name,
+                            c);
+                    state = 0;
+                    break;
+                }
+                calc_csum = (calc_csum << 4) | nib;
+                state = 9;
+                break;
+            case 9:
+                /* Now get the second byte of the checksum, and
+                   check it. */
+                if ((nib = rp_hex_nibble(c)) < 0)
+                {
+                    rp_log(RP_VAL_LOGLEVEL_DEBUG,
+                            "%s: bad checksum character %c",
+                            name,
+                            c);
+                    state = 0;
+                    break;
+                }
+                calc_csum = (calc_csum << 4) | nib;
+                if (rx_csum == calc_csum)
+                {
+                    buf[pkt_len] = '\0';
+                    *len = pkt_len;
+
+                    /* Acknowledge this good packet */
+                    dbg_sock_putchar(&(t->dbg_sock), &(t->dbg_listen_sock), '+');
+                    if (seq_valid)
+                    {
+                        dbg_sock_putchar(&(t->dbg_sock), &(t->dbg_listen_sock), seq[0]);
+                        dbg_sock_putchar(&(t->dbg_sock), &(t->dbg_listen_sock), seq[1]);
+                    }
+
+                    rp_log(RP_VAL_LOGLEVEL_DEBUG2, "%s: packet received: %s", name, buf);
+                    return  0;
+                }
+                rp_log(RP_VAL_LOGLEVEL_DEBUG,
+                        "%s: bad checksum calculated=0x%x received=0x%x",
+                        name,
+                        rx_csum,
+                        calc_csum);
+                state = 0;
+                continue;
         }
     }
     /* We can't actually get here */
@@ -2135,7 +2208,7 @@ static int rp_getpkt(char *buf, size_t buf_len, size_t *len, int timeout)
 }
 
 /* Send an 'O' packet (console output) to GDB */
-static void rp_console_output(const char *s)
+static void rp_console_output(rp_target* t, const char *s)
 {
     int ret;
     char *d;
@@ -2144,15 +2217,15 @@ static void rp_console_output(const char *s)
     static char buf[RP_VAL_DBG_PBUFSIZ - 6];
 
 #if RP_VAL_DBG_PBUFSIZ < 10
- #error "Unexpected value of RP_VAL_DBG_PBUFSIZ"
+#error "Unexpected value of RP_VAL_DBG_PBUFSIZ"
 #endif /* RP_VAL_DBG_PBUFSIZ < 10 */
 
-    if (!rp_target_out_valid)
+    if (!t->rp_target_out_valid)
     {
         rp_log(RP_VAL_LOGLEVEL_DEBUG,
-               "%s: unexpected output from target: %s",
-               name,
-               s);
+                "%s: unexpected output from target: %s",
+                name,
+                s);
         return;
     }
 
@@ -2165,18 +2238,18 @@ static void rp_console_output(const char *s)
 
     do
     {
-	d = buf;
+        d = buf;
         *d++ = 'O';
         for (count = 1;  *s  &&  count < lim;  s++, d++, count++)
             *d = *s;
         *d = '\0';
-        ret = rp_putpkt(buf);
+        ret = rp_putpkt(t, buf);
     }
     while (*s  &&  ret);
 }
 
 /* Send hex data to GDB */
-static void rp_data_output(const char *s)
+static void rp_data_output(rp_target* t, const char *s)
 {
     int ret;
     char *d;
@@ -2185,15 +2258,15 @@ static void rp_data_output(const char *s)
     static char buf[RP_VAL_DBG_PBUFSIZ - 6];
 
 #if RP_VAL_DBG_PBUFSIZ < 10
- #error "Unexpected value for RP_VAL_DBG_PBUFSIZ"
+#error "Unexpected value for RP_VAL_DBG_PBUFSIZ"
 #endif /* RP_VAL_DBG_PBUFSIZ < 10 */
 
-    if (!rp_target_out_valid)
+    if (!t->rp_target_out_valid)
     {
         rp_log(RP_VAL_LOGLEVEL_DEBUG,
-               "%s: unexpected output from target: %s",
-               name,
-               s);
+                "%s: unexpected output from target: %s",
+                name,
+                s);
         return;
     }
 
@@ -2210,16 +2283,16 @@ static void rp_data_output(const char *s)
         for (d = buf, count = 0;  *s != 0  &&  count < lim;  s++, d++, count++)
             *d = *s;
         *d = '\0';
-        ret = rp_putpkt(buf);
+        ret = rp_putpkt(t, buf);
     }
     while (*s  &&  ret);
 }
 
 /* Convert stream of chars into data */
 static int rp_decode_data(const char *in,
-                          unsigned char *out,
-                          size_t out_size,
-                          size_t *len)
+        unsigned char *out,
+        size_t out_size,
+        size_t *len)
 {
     size_t count;
     unsigned int bytex;
@@ -2268,10 +2341,10 @@ static int rp_decode_reg(const char *in, unsigned int *reg_no)
 
 /* Decode reg_no=XXXXXX */
 static int rp_decode_reg_assignment(const char *in,
-		                    unsigned int *reg_no,
-                                    unsigned char *out,
-			            size_t out_size,
-                                    size_t *out_len)
+        unsigned int *reg_no,
+        unsigned char *out,
+        size_t out_size,
+        size_t *out_len)
 {
     assert(in != NULL);
     assert(reg_no != NULL);
@@ -2297,16 +2370,16 @@ static int rp_decode_mem(const char *in, uint64_t *addr, size_t *len)
         return  FALSE;
 
     *len = 0;
-    return  rp_decode_uint32(&in, len, '\0');
+    return  rp_decode_uint32(&in, (uint32_t*) len, '\0');
 }
 
 /* Decode process query. Format: 'MMMMMMMMRRRRRRRRRRRRRRRR'
-   where: 
-      M represents mask
-      R represents thread reference */
+where: 
+M represents mask
+R represents thread reference */
 static int rp_decode_process_query(const char *in,
-                                   unsigned int *mask,
-                                   rp_thread_ref *ref)
+        unsigned int *mask,
+        rp_thread_ref *ref)
 {
     unsigned int tmp_mask;
     uint64_t tmp_val;
@@ -2329,17 +2402,17 @@ static int rp_decode_process_query(const char *in,
 }
 
 /* Decode thread list list query. Format 'FMMAAAAAAAAAAAAAAAA'
-   where:
-      F represents first flag
-      M represents max count
-      A represents argument thread reference */
+where:
+F represents first flag
+M represents max count
+A represents argument thread reference */
 static int rp_decode_list_query(const char *in,
-                                int *first,
-                                size_t *max,
-                                rp_thread_ref *arg)
+        int *first,
+        size_t *max,
+        rp_thread_ref *arg)
 {
     unsigned int first_flag;
-    size_t tmp_max;
+    unsigned int tmp_max;
     uint64_t tmp_val;
 
     assert(in != NULL);
@@ -2359,7 +2432,7 @@ static int rp_decode_list_query(const char *in,
         return  FALSE;
 
     *first = (first_flag)  ?  TRUE  :  FALSE;
-    *max = tmp_max;
+    *max = (size_t) tmp_max;
     arg->val = tmp_val;
 
     return  TRUE;
@@ -2367,9 +2440,9 @@ static int rp_decode_list_query(const char *in,
 
 /* Decode a breakpoint (z or Z) packet */
 static int rp_decode_break(const char *in,
-                           int *type,
-                           uint64_t *addr,
-                           unsigned int *len)
+        int *type,
+        uint64_t *addr,
+        unsigned int *len)
 {
     unsigned int val;
 
@@ -2405,10 +2478,10 @@ static int rp_decode_break(const char *in,
 /* If a byte of avail is 0 then the corresponding data byte is
    encoded as 'xx', otherwise it is encoded in normal way */
 static int rp_encode_regs(const unsigned char *data,
-	                  const unsigned char *avail,
-                          size_t data_len,
-                          char *out,
-	                  size_t out_size)
+        const unsigned char *avail,
+        size_t data_len,
+        char *out,
+        size_t out_size)
 {
     size_t i;
 
@@ -2444,9 +2517,9 @@ static int rp_encode_regs(const unsigned char *data,
 
 /* Convert an array of bytes into an array of characters */
 static int rp_encode_data(const unsigned char *data,
-	                  size_t data_len,
-                          char *out,
-                          size_t out_size)
+        size_t data_len,
+        char *out,
+        size_t out_size)
 {
     size_t i;
 
@@ -2500,16 +2573,16 @@ int rp_encode_string(const char *s, char *out, size_t out_size)
 /* Encode result of process query:
    qQMMMMMMMMRRRRRRRRRRRRRRRR(TTTTTTTTLLVV..V)*,
    where 
-      M   represents mask
-      R   represents ref
-      T   represents tag
-      L   represents length
-      V   represents value */
+   M   represents mask
+   R   represents ref
+   T   represents tag
+   L   represents length
+   V   represents value */
 static int rp_encode_process_query_response(unsigned int mask,
-		                            const rp_thread_ref *ref,
-                                            const rp_thread_info *info,
-				            char *out,
-                                            size_t out_size)
+        const rp_thread_ref *ref,
+        const rp_thread_info *info,
+        char *out,
+        size_t out_size)
 {
     size_t len;
     unsigned int tag;
@@ -2558,91 +2631,91 @@ static int rp_encode_process_query_response(unsigned int mask,
 
         switch (tag)
         {
-        case RP_BIT_PROCQMASK_THREADID:
-            if (out_size <= 18)
+            case RP_BIT_PROCQMASK_THREADID:
+                if (out_size <= 18)
+                    return 0;
+
+                /* Encode length - it is 16 */
+                rp_encode_byte(16, out);
+                out += 2;
+                out_size -= 2;
+
+                /* Encode value */
+                sprintf(out, "%016"PRIu64"x", info->thread_id.val);
+
+                out += 16;
+                out_size -= 16;
+                break;
+            case RP_BIT_PROCQMASK_EXISTS:
+                /* One nibble is enough */
+                if (out_size <= 3)
+                    return 0;
+
+                /* Encode Length */
+                rp_encode_byte(1, out);
+                out += 2;
+                out_size -= 2;
+
+                /* Encode value */
+                *out++    = (info->exists) ? '1' : '0';
+                out_size-- ;
+                *out      = 0;
+                break;
+            case RP_BIT_PROCQMASK_DISPLAY:
+                /* Encode length */
+                len = strlen(info->display);
+                assert(len <= 255);
+
+                if (out_size <= (len + 2))
+                    return 0;
+
+                rp_encode_byte(len, out);
+                out += 2;
+                out_size -= 2;
+
+                /* Encode value */
+                strcpy(out, info->display);
+                out      += len;
+                out_size -= len;
+                break;
+            case RP_BIT_PROCQMASK_THREADNAME:
+                /* Encode length */
+                len = strlen(info->thread_name);
+                assert(len <= 255);
+
+                if (out_size <= (len + 2))
+                    return 0;
+
+                rp_encode_byte(len, out);
+                out += 2;
+                out_size -= 2;
+
+                /* Encode value */
+                strcpy(out, info->thread_name);
+                out      += len;
+                out_size -= len;
+                break;
+            case RP_BIT_PROCQMASK_MOREDISPLAY:
+                /* Encode length */
+                len = strlen(info->more_display);
+                assert(len <= 255);
+
+                if (out_size <= (len + 2))
+                    return 0;
+
+                rp_encode_byte(len, out);
+                out += 2;
+                out_size -= 2;
+
+                /* Encode value */
+                strcpy(out, info->more_display);
+                out += len;
+                out_size -= len;
+                break;
+            default:
+                /* Unexpected tag value */
+                assert(0);
                 return 0;
-
-            /* Encode length - it is 16 */
-            rp_encode_byte(16, out);
-            out += 2;
-            out_size -= 2;
-
-            /* Encode value */
-            sprintf(out, "%016"PRIu64"x", info->thread_id.val);
-
-            out += 16;
-            out_size -= 16;
-            break;
-        case RP_BIT_PROCQMASK_EXISTS:
-            /* One nibble is enough */
-            if (out_size <= 3)
-                return 0;
-
-            /* Encode Length */
-            rp_encode_byte(1, out);
-            out += 2;
-            out_size -= 2;
-
-            /* Encode value */
-            *out++    = (info->exists) ? '1' : '0';
-            out_size-- ;
-            *out      = 0;
-            break;
-        case RP_BIT_PROCQMASK_DISPLAY:
-            /* Encode length */
-            len = strlen(info->display);
-            assert(len <= 255);
-
-            if (out_size <= (len + 2))
-                return 0;
-
-            rp_encode_byte(len, out);
-            out += 2;
-            out_size -= 2;
-
-            /* Encode value */
-            strcpy(out, info->display);
-            out      += len;
-            out_size -= len;
-            break;
-        case RP_BIT_PROCQMASK_THREADNAME:
-            /* Encode length */
-            len = strlen(info->thread_name);
-            assert(len <= 255);
-
-            if (out_size <= (len + 2))
-                return 0;
-
-            rp_encode_byte(len, out);
-            out += 2;
-            out_size -= 2;
-
-            /* Encode value */
-            strcpy(out, info->thread_name);
-            out      += len;
-            out_size -= len;
-            break;
-        case RP_BIT_PROCQMASK_MOREDISPLAY:
-            /* Encode length */
-            len = strlen(info->more_display);
-            assert(len <= 255);
-
-            if (out_size <= (len + 2))
-                return 0;
-
-            rp_encode_byte(len, out);
-            out += 2;
-            out_size -= 2;
-
-            /* Encode value */
-            strcpy(out, info->more_display);
-            out += len;
-            out_size -= len;
-            break;
-        default:
-            /* Unexpected tag value */
-            assert(0);
-            return 0;
         }
     }
 
@@ -2652,16 +2725,16 @@ static int rp_encode_process_query_response(unsigned int mask,
 /* Encode result of list query:
    qMCCDAAAAAAAAAAAAAAAA(FFFFFFFFFFFFFFFF)*,
    where 
-      C   reprsents  count
-      D   represents done
-      A   represents arg thread reference
-      F   represents found thread reference(s) */
+   C   reprsents  count
+   D   represents done
+   A   represents arg thread reference
+   F   represents found thread reference(s) */
 static int rp_encode_list_query_response(size_t count,
-		                         int done,
-                                         const rp_thread_ref *arg,
-                                         const rp_thread_ref *found,
-                                         char *out,
-			                 size_t out_size)
+        int done,
+        const rp_thread_ref *arg,
+        const rp_thread_ref *found,
+        char *out,
+        size_t out_size)
 {
     size_t i;
 
@@ -2887,7 +2960,7 @@ static void rp_usage(void)
 
 
     printf("                       `%s --help target' prints target's help\n",
-           name);
+            name);
     printf("  --port=PORT          use the specified TCP port\n");
     printf("  --version            print version\n");
     printf("  --warranty           print warranty information\n");
@@ -2910,19 +2983,19 @@ static void rp_write_retval(int ret, char *b)
 {
     switch (ret)
     {
-    case RP_VAL_TARGETRET_OK:
-        strcpy(b, "OK");
-        break;
-    case RP_VAL_TARGETRET_ERR:
-        strcpy(b, "E00");
-        break;
-    case RP_VAL_TARGETRET_NOSUPP:
-        /* Write empty string into buffer */
-        *b = '\0';
-        break;
-    default:
-        assert(0);
-        break;
+        case RP_VAL_TARGETRET_OK:
+            strcpy(b, "OK");
+            break;
+        case RP_VAL_TARGETRET_ERR:
+            strcpy(b, "E00");
+            break;
+        case RP_VAL_TARGETRET_NOSUPP:
+            /* Write empty string into buffer */
+            *b = '\0';
+            break;
+        default:
+            assert(0);
+            break;
     }
 }
 
@@ -2942,7 +3015,7 @@ static int rp_rcmd_help(int argc, char *argv[], out_func of, data_func df, rp_ta
     int i = 0;
 
     rp_encode_string("Remote command help:\n", buf, 1000);
-    of(buf);
+    of(t, buf);
     for (i = 0;  rp_remote_commands[i].name;  i++)
     {
 #ifdef WIN32
@@ -2951,69 +3024,69 @@ static int rp_rcmd_help(int argc, char *argv[], out_func of, data_func df, rp_ta
         snprintf(buf2, 1000, "%-10s %s\n", rp_remote_commands[i].name, rp_remote_commands[i].help);
 #endif
         rp_encode_string(buf2, buf, 1000);
-        of(buf);
+        of(t, buf);
     }
     if (t->remote_commands)
-      for (i = 0;  t->remote_commands[i].name;  i++)
-      {
+        for (i = 0;  t->remote_commands[i].name;  i++)
+        {
 #ifdef WIN32
-	  sprintf(buf2, "%-10s %s\n", t->remote_commands[i].name, t->remote_commands[i].help);
+            sprintf(buf2, "%-10s %s\n", t->remote_commands[i].name, t->remote_commands[i].help);
 #else
-	  snprintf(buf2, 1000, "%-10s %s\n", t->remote_commands[i].name, t->remote_commands[i].help);
+            snprintf(buf2, 1000, "%-10s %s\n", t->remote_commands[i].name, t->remote_commands[i].help);
 #endif
-	  rp_encode_string(buf2, buf, 1000);
-	  of(buf);
-      }
+            rp_encode_string(buf2, buf, 1000);
+            of(t, buf);
+        }
     return RP_VAL_TARGETRET_OK;
 }
 
 /* Set function, set debug level */
 static int rp_rcmd_set(int argc, char *argv[], out_func of, data_func df, rp_target *t)
 {
-  char buf[1000 + 1];
-  char buf2[1000 + 1];
+    char buf[1000 + 1];
+    char buf2[1000 + 1];
 
-  if (argc == 1)
+    if (argc == 1)
     {
-      sprintf (buf2, "Missing argument to set command.\n");
-      rp_encode_string(buf2, buf, 1000);
-      of(buf);
-      return RP_VAL_TARGETRET_OK;
+        sprintf (buf2, "Missing argument to set command.\n");
+        rp_encode_string(buf2, buf, 1000);
+        of(t, buf);
+        return RP_VAL_TARGETRET_OK;
     }
 
-  if (strcmp ("debug", argv[1]) != 0)
+    if (strcmp ("debug", argv[1]) != 0)
     {
-      sprintf (buf2, "Undefined set command: \"%s\"\n", argv[1]);
-      rp_encode_string(buf2, buf, 1000);
-      of(buf);
-      return RP_VAL_TARGETRET_OK;
+        sprintf (buf2, "Undefined set command: \"%s\"\n", argv[1]);
+        rp_encode_string(buf2, buf, 1000);
+        of(t, buf);
+        return RP_VAL_TARGETRET_OK;
     }
 
-  if (argc != 3)
+    if (argc != 3)
     {
-      sprintf (buf2, "Wrong arguments for debug command.\n");
-      rp_encode_string(buf2, buf, 1000);
-      of(buf);
-      return RP_VAL_TARGETRET_OK;
+        sprintf (buf2, "Wrong arguments for debug command.\n");
+        rp_encode_string(buf2, buf, 1000);
+        of(t, buf);
+        return RP_VAL_TARGETRET_OK;
     }
 
-  if (strcmp ("0", argv[2]) == 0)
-    rp_debug_level = 0;
-  else if (strcmp ("1", argv[2]) == 0)
-    rp_debug_level = 1;
-  else if (strcmp ("2", argv[2]) == 0)
-    rp_debug_level = 2;
-  else if (strcmp ("3", argv[2]) == 0)
-    rp_debug_level = 3;
-  else
+    if (strcmp ("0", argv[2]) == 0)
+        rp_debug_level = 0;
+    else if (strcmp ("1", argv[2]) == 0)
+        rp_debug_level = 1;
+    else if (strcmp ("2", argv[2]) == 0)
+        rp_debug_level = 2;
+    else if (strcmp ("3", argv[2]) == 0)
+        rp_debug_level = 3;
+    else
     {
-      sprintf (buf2, "Invalid debug level: \"%s\"\n", argv[2]);
-      rp_encode_string(buf2, buf, 1000);
-      of(buf);
-      return RP_VAL_TARGETRET_OK;
+        sprintf (buf2, "Invalid debug level: \"%s\"\n", argv[2]);
+        rp_encode_string(buf2, buf, 1000);
+        of(t, buf);
+        return RP_VAL_TARGETRET_OK;
     }
 
-  return RP_VAL_TARGETRET_OK;
+    return RP_VAL_TARGETRET_OK;
 }
 
 #ifdef NDEBUG
@@ -3043,18 +3116,18 @@ static int handle_rcmd_command(char *in_buf, out_func of, data_func df, rp_targe
     char *s;
 
     rp_log(RP_VAL_LOGLEVEL_DEBUG,
-	   "%s: handle_rcmd_command()",
-	   name);
+            "%s: handle_rcmd_command()",
+            name);
     DEBUG_OUT("command '%s'", in_buf);
 
     if (strlen(in_buf))
     {
         /* There is something to process */
         /* TODO: Handle target specific commands, such as flash erase, JTAG
-                 control, etc. */
+           control, etc. */
         /* A single example "flash erase" command is partially implemented
            here as an example. */
-        
+
         /* Turn the hex into ASCII */
         ptr = in_buf;
         s = buf;
@@ -3067,7 +3140,7 @@ static int handle_rcmd_command(char *in_buf, out_func of, data_func df, rp_targe
         }
         *s = '\0';
         DEBUG_OUT("command '%s'", buf);
-        
+
         /* Split string into separate arguments */
         ptr = buf;
         args[count++] = ptr;
@@ -3087,19 +3160,19 @@ static int handle_rcmd_command(char *in_buf, out_func of, data_func df, rp_targe
         /* Search the command table, and execute the function if found */
         DEBUG_OUT("executing target dependant command '%s'", args[0]);
 
-	/* Search the target command table first, such that we allow target
-	   to override the general command.  */
-	if (t->remote_commands)
+        /* Search the target command table first, such that we allow target
+           to override the general command.  */
+        if (t->remote_commands)
             for (i = 0;  t->remote_commands[i].name;  i++)
             {
                 if (strcmp(args[0], t->remote_commands[i].name) == 0)
-		    return t->remote_commands[i].function(count, args, of, df);
-	    }
+                    return t->remote_commands[i].function(count, args, of, df, t);
+            }
 
         for (i = 0;  rp_remote_commands[i].name;  i++)
         {
             if (strcmp(args[0], rp_remote_commands[i].name) == 0)
-	        return rp_remote_commands[i].function(count, args, of, df, t);
+                return rp_remote_commands[i].function(count, args, of, df, t);
         }
         return RP_VAL_TARGETRET_NOSUPP;
     }

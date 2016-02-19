@@ -60,8 +60,8 @@
 #include "gdbproxy.h"
 
 /* List of targets */
-extern rp_target remote_target;
-extern rp_target extended_remote_target;
+//extern rp_target remote_target;
+//extern rp_target extended_remote_target;
 
 #if defined(HAVE_TARGET_SKELETON_C)
 extern rp_target skeleton_target;
@@ -69,6 +69,18 @@ extern rp_target skeleton_target;
 
 #if defined(HAVE_TARGET_MSP430_C)
 extern rp_target msp430_target;
+#endif
+
+#if defined(HAVE_TARGET_ATSAM_CPP)
+extern rp_target atsam_target;
+#endif
+
+#if defined(HAVE_TARGET_ATUC3_CPP)
+extern rp_target atuc3_target;
+#endif
+
+#if defined(HAVE_TARGET_ATAVR8_CPP)
+extern rp_target atavr8_target;
 #endif
 
 /* TODO: Add more targets here */
@@ -87,20 +99,35 @@ rp_target *rp_init(void)
     t_list = NULL;
 
     /* Add target to the list */
-    remote_target.next          = t_list;
-    t_list                      = &remote_target;
-
-    extended_remote_target.next = t_list;
-    t_list                      = &extended_remote_target;
+//    remote_target.next          = t_list;
+//    t_list                      = &remote_target;
+//
+//    extended_remote_target.next = t_list;
+//    t_list                      = &extended_remote_target;
 
 #if defined(HAVE_TARGET_SKELETON_C)
-    skeleton_target.next	= t_list;
-    t_list			= &skeleton_target;
+    skeleton_target.next        = t_list;
+    t_list                      = &skeleton_target;
 #endif
     
 #if defined(HAVE_TARGET_MSP430_C)
     msp430_target.next          = t_list;
     t_list                      = &msp430_target;
+#endif
+
+#if defined(HAVE_TARGET_ATSAM_CPP)
+    atsam_target.next           = t_list;
+    t_list                      = &atsam_target;
+#endif
+
+#if defined(HAVE_TARGET_ATUC3_CPP)
+    atuc3_target.next           = t_list;
+    t_list                      = &atuc3_target;
+#endif
+
+#if defined(HAVE_TARGET_ATAVR8_CPP)
+    atavr8_target.next          = t_list;
+    t_list                      = &atavr8_target;
 #endif
 
     /* TODO: Add more targets here */
