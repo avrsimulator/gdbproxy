@@ -44,7 +44,8 @@ gdbproxy_SOURCES = \
     target_atuc3.cpp \
     target_atavr8.cpp \
     gdbproxy.h \
-    rpmisc.h 
+    rpmisc.h \
+	avrmodelapi/modelmgr/modelmgr.cpp
 
 EXTRA_gdbproxy_SOURCES = getopt.h
 

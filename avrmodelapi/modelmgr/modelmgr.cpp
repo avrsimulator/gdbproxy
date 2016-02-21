@@ -41,12 +41,14 @@
  *
  */
 
-#include "sysdep.h"
 
 #include "modelmgr.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "sysdep.h"
+
 #ifndef __unix__
 // assume win32
 #define snprintf _snprintf

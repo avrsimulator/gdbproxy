@@ -60,12 +60,12 @@ fi
 CPPFLAGS="-Iavrmodelapi"
 
 if test "$host_os" = "mingw32" ; then
-    LIBS="$LIBS -Lavrmodelapi/modelmgr/win32/release -lmodelmgr -lws2_32 -lpthreadGC2 -liberty"
+    LIBS="$LIBS -lws2_32 -lpthreadGC2"
     CPPFLAGS+=" -DPTW32_STATIC_LIB"
 fi
 
 if test "$host_os" = "linux-gnu" ; then
-    LIBS="$LIBS -Lavrmodelapi/modelmgr/linux64/release -lmodelmgr -ldl -lpthread"
+    LIBS="$LIBS -ldl -lpthread"
 fi
 
 if test "$host_os" = "cygwin" ; then
