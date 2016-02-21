@@ -80,13 +80,13 @@ fi
 #### if test -r target_msp430.c ; then
 ####     AC_DEFINE([HAVE_TARGET_MSP430_C], [1], [A target implementation for the MSP430])
 #### fi
-if test -r ../target_atsam.cpp ; then
+if test -r target_atsam.cpp ; then
     AC_DEFINE([HAVE_TARGET_ATSAM_CPP], [1], [A target implementation for Atmel SAM simulator models])
 fi
-if test -r ../target_atuc3.cpp ; then
+if test -r target_atuc3.cpp ; then
     AC_DEFINE([HAVE_TARGET_ATUC3_CPP], [1], [A target implementation for Atmel AVR32 UC3 simulator models])
 fi
-if test -r ../target_atavr8.cpp ; then
+if test -r target_atavr8.cpp ; then
     AC_DEFINE([HAVE_TARGET_ATAVR8_CPP], [1], [A target implementation for Atmel AVR 8-bit simulator models])
 fi
 
